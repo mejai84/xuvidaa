@@ -76,6 +76,7 @@ module.exports = async function handler(req, res) {
 
   const done = (err, value) => {
     if (err && err.code === 'PORTAL_TIMEOUT') return reply(res, 504, { returnValue: false, errorText: 'El portal no respondió a tiempo. Vuelve a intentarlo.', errorCode: 'PORTAL_TIMEOUT' });
+    if (err && err.portalCode === 'portal100024') return reply(res, 503, { returnValue: false, errorText: 'El proveedor no permite el acceso desde la región de este servidor.', errorCode: err.portalCode });
     if (err) return reply(res, 502, { returnValue: false, errorText: String(err.message || err), errorCode: err.portalCode || 1 });
     return reply(res, 200, Object.assign({ returnValue: true }, value || {}));
   };
