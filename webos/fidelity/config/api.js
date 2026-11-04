@@ -13,7 +13,7 @@
  *
  * STATIC MODE (offline)
  * ---------------------
- *   mode: 'static'   -> only data/catalog.js (observed crops + open samples).
+ *   mode: 'static'   -> disabled in the HTML build; no sample content is loaded.
  *
  * GENERIC AUTHORIZED BACKEND
  * --------------------------
@@ -37,16 +37,14 @@ window.XUPERTV_API = {
   /* Bundle id of the packaged Node service. */
   serviceId: 'com.webosflux.xuptertv.fidelity.service',
 
-  /* Refresh the snapshot from the service on boot (false = snapshot only). */
-  refresh: true,
+  /* Browser build uses the genuine snapshot; configure service calls separately. */
+  refresh: false,
 
-  /* Desktop development: plain HTTP mirror of the service methods, used when
-     webOS.service is not available (tools/dev_service.mjs). Leave empty on the
-     TV. */
-  devServiceUrl: 'http://127.0.0.1:8910',
+  /* Browser transport. Same-origin Vercel Function in HTML mode. */
+  devServiceUrl: '/api',
 
   /* static / catalog modes */
-  useBundledCatalog: true,
+  useBundledCatalog: false,
   baseUrl: '',
   catalogPath: '',
   detailPath: '',

@@ -169,7 +169,6 @@
           <div class="psv-title">RESOLUCIÓN / MODO</div>
           <div class="psv-grid scrollable" id="psv-player-row">
             <button class="psv-btn focusable" id="psv-btn-p2"><span class="psv-check">✔</span>Normal (Directo)</button>
-            <button class="psv-btn focusable" id="psv-btn-p1"><span class="psv-check">✔</span>Modo Fluido (Remux TV)</button>
           </div>
         </div>
 
@@ -290,11 +289,9 @@
 <!-- Real Magis portal catalog snapshot (anonymous session, generated at
      build time). Provides an instant first paint with the real catalog. -->
 <script src="data/portal.js"></script>
-<!-- Bundled sample catalog (open movies). Replace it or point
-     config/api.js at an authorized backend to load your own VOD catalog. -->
-<script src="data/catalog.js"></script>
 <!-- Local, authorized VOD endpoint configuration.  Keep this file before app.js. -->
 <script src="config/api.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

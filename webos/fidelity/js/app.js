@@ -47,44 +47,7 @@
   }
   function each(list, fn) { for (var i = 0; i < list.length; i++) { fn(list[i], i); } }
 
-  /* ------------------------------------------------------------- demo data */
-  /* Server-driven in the real APK. These records only exercise the layouts. */
-  var GENRES = ['Acción', 'Drama', 'Comedia', 'Suspenso', 'Aventura',
-                'Animación', 'Familiar', 'Ciencia ficción'];
-
   var VOD = [];
-  var CATEGORY_BY_PREFIX = {
-    'Destacado': 'destacado', 'Película': 'pelicula', 'Serie': 'serie',
-    'Gratis': 'gratis', 'Infantil': 'infantil', 'UHD': 'uhd', 'Extra': 'extra'
-  };
-  function addVod(prefix, count, base) {
-    for (var i = 1; i <= count; i++) {
-      var g1 = GENRES[(base + i) % GENRES.length];
-      var g2 = GENRES[(base + i + 3) % GENRES.length];
-      VOD.push({
-        id: VOD.length + 1,
-        title: prefix + ' demo ' + pad2(i),
-        category: CATEGORY_BY_PREFIX[prefix] || '',
-        score: (7.9 + ((base + i) % 16) / 10).toFixed(1),
-        year: 2018 + ((base + i) % 7),
-        duration: (1 + ((base + i) % 2)) + ' h ' + (10 + ((base * 7 + i * 5) % 45)) + ' min',
-        genres: g1 === g2 ? [g1] : [g1, g2],
-        director: 'Director demo ' + pad2(i),
-        actors: 'Actor demo ' + pad2(i) + ', Actriz demo ' + pad2(i + 1),
-        synopsis: 'Sinopsis de demostración para ' + prefix.toLowerCase() + ' demo ' + pad2(i) +
-          '. Este texto sólo existe para comprobar el recorte a dos líneas, el interlineado y ' +
-          'la sangría de la etiqueta "Sinopsis :" definidos en activity_voddetails.',
-        kind: prefix.toLowerCase()
-      });
-    }
-  }
-  addVod('Destacado', 5, 1);
-  addVod('Película', 7, 2);
-  addVod('Serie', 7, 3);
-  addVod('Gratis', 5, 4);
-  addVod('Infantil', 8, 5);
-  addVod('UHD', 4, 6);
-  addVod('Extra', 4, 7);
 
   /* ------------------------------------------------------------- VOD API
      XMLHttpRequest is used deliberately: it works on Chromium 53, where
@@ -93,7 +56,7 @@
   /* Desktop harness override: ?service=http://127.0.0.1:8910 */
   var devServiceParam = /[?&]service=([^&]+)/.exec(window.location.search || '');
   if (devServiceParam) { vodApi.devServiceUrl = decodeURIComponent(devServiceParam[1]); }
-  var vodApiState = { loading: false, source: 'demo', error: null };
+  var vodApiState = { loading: false, source: 'portal', error: null };
   var portalState = { refreshing: false, lastSync: 0, roots: 0, error: null };
   var PORTAL_ROOTS = ['featured', 'movies', 'series', 'anime', 'kids', 'free'];
 
@@ -374,33 +337,13 @@
     return true;
   }
 
-  /* A real catalog may not have every home section. Prefer the declared
-     category, then fall back to positional demo slices so the reconstructed
-     layouts always have content to show. */
+  /* Show only records actually returned for the requested portal category. */
   function vodFor(category, count, fallbackStart) {
     var out = [], i;
     if (category) {
       for (i = 0; i < VOD.length; i++) {
         var cats = norm(VOD[i].category || '').split(',');
         if (cats.indexOf(category) !== -1) { out.push(VOD[i]); }
-      }
-    }
-    if (!out.length) { out = VOD.slice(fallbackStart, fallbackStart + count); }
-    if (!out.length) { out = VOD.slice(0, count); }
-    /* Fill short sections with other catalog entries so the sample never shows
-       one poster repeated across a whole mosaic. A real backend normally sends
-       enough items per section; this only affects the bundled demo catalog. */
-    if (out.length < count && VOD.length) {
-      var seen = {};
-      for (i = 0; i < out.length; i++) { seen[String(out[i].id)] = true; }
-      var cursor = 0;
-      while (out.length < count && cursor < VOD.length * 2) {
-        var cand = VOD[cursor % VOD.length];
-        cursor++;
-        if (!seen[String(cand.id)]) {
-          out.push(cand);
-          seen[String(cand.id)] = true;
-        }
       }
     }
     return out;
@@ -439,11 +382,6 @@
     }
     if (searchKeyboard) { buildSearch(); if (state.searchQuery) { runSearch(); } }
     if (state.detail) { buildDetail(state.detail); }
-  }
-
-  function bundledCatalog() {
-    var data = window.XUPERTV_CATALOG;
-    return data ? apiArray(data) : [];
   }
 
   /* ------------------------------------------------------ portal service
@@ -517,6 +455,10 @@ function rememberCdnProbe(kind, payload) {
 }
 
 function portalServiceCall(method, params, done, customTimeout) {
+  if (!window.PalmServiceBridge && /^(ping|heartbeat|keepAlive|prewarm|abortMedia|netdiag|fetchM3u|resolveSmooth)$/.test(method)) {
+    done(null, { returnValue: true, skipped: true });
+    return true;
+  }
   var serviceId = vodApi.serviceId || 'com.webosflux.xuptertv.fidelity.service';
   var settled = false;
   var timeoutMs = customTimeout || parseInt(vodApi.timeoutMs, 10) || 20000;
@@ -555,8 +497,10 @@ function portalServiceCall(method, params, done, customTimeout) {
   /* Desktop harness: reach the same methods over plain HTTP when the Luna
      bridge is missing or rejected the request (webOSTV.js on a browser). */
   if (vodApi.devServiceUrl) {
-    apiRequest(String(vodApi.devServiceUrl).replace(/\/$/, '') + '/' + method + '?' + queryString(params || {}),
-      function (error, payload) { finish(error, payload); }, null);
+    var serviceBase = String(vodApi.devServiceUrl).replace(/\/$/, '');
+    apiRequest(serviceBase + '/' + encodeURIComponent(method),
+      function (error, payload) { finish(error, payload); },
+      { method: 'POST', body: params || {} });
     return true;
   }
   finish('El servicio XuperTV no está disponible', null);
@@ -593,25 +537,6 @@ function portalServiceCall(method, params, done, customTimeout) {
     return data ? apiArray(data) : [];
   }
 
-  /* Open movies are kept only to exercise the detail -> player pipeline; they
-     are not portal titles, so they never go through the resolver. */
-  function openSamples() {
-    var all = bundledCatalog();
-    var out = [];
-    for (var i = 0; i < all.length; i++) {
-      if (all[i] && all[i].streamUrl) {
-        var rec = {};
-        for (var k in all[i]) {
-          if (Object.prototype.hasOwnProperty.call(all[i], k)) { rec[k] = all[i][k]; }
-        }
-        rec.category = 'demo';
-        rec.portal = false;
-        out.push(rec);
-      }
-    }
-    return out;
-  }
-
   function applyPortalRefresh(roots) {
     var byId = {}, order = [], cats = {};
     function absorb(item) {
@@ -636,7 +561,7 @@ function portalServiceCall(method, params, done, customTimeout) {
       for (var i = 0; i < list.length; i++) { list[i].portal = true; absorb(list[i]); }
     }
     if (!order.length) {
-      /* Refresh received no items (service offline or slow): preserve snapshot catalog! */
+      /* Refresh received no items: preserve the genuine portal snapshot. */
       return;
     }
     var records = [];
@@ -645,8 +570,6 @@ function portalServiceCall(method, params, done, customTimeout) {
       rec.category = Object.keys(cats[order[o]]).join(',');
       records.push(rec);
     }
-    var demo = openSamples();
-    for (var d = 0; d < demo.length; d++) { records.push(demo[d]); }
     if (records.length) { replaceVod(records, 'portal', true); }
   }
 
@@ -689,28 +612,17 @@ function portalServiceCall(method, params, done, customTimeout) {
     refreshPortalCatalog();
   }
 
-  function useBundledCatalog(source, error) {
-    var records = bundledCatalog();
-    if (!replaceVod(records, source || 'bundled')) {
-      vodApiState.error = error || 'No hay catálogo local ni remoto';
-      return false;
-    }
-    if (error) { vodApiState.error = error; }
-    return true;
-  }
-
   function loadVodCatalog() {
     if (!vodApi.enabled) { return; }
     if (vodApi.mode === 'portal') { loadPortalCatalog(); return; }
-    if (vodApi.mode === 'static') { useBundledCatalog('bundled', null); return; }
+    if (vodApi.mode === 'static') { vodApiState.error = 'El catálogo de muestra está desactivado'; return; }
     var url = apiUrl('catalog');
     if (vodApi.mode === 'xuper' && !hasXuperSession()) {
       vodApiState.error = 'Falta la sesión XuperTV (userId, userToken y portalCode)';
       return;
     }
     if (!url) {
-      if (vodApi.useBundledCatalog) { useBundledCatalog('bundled', null); }
-      else { vodApiState.error = 'Falta baseUrl/catalogUrl del catálogo autorizado'; }
+      vodApiState.error = 'Falta baseUrl/catalogUrl del catálogo autorizado';
       return;
     }
     vodApiState.loading = true;
@@ -719,10 +631,7 @@ function portalServiceCall(method, params, done, customTimeout) {
       var responseError = apiError(payload);
       if (!error && !responseError && replaceVod(apiArray(payload), 'api')) { return; }
       var message = error || responseError || 'La API no devolvió películas';
-      /* A remote endpoint that is offline must not leave the port empty. */
-      if (!useBundledCatalog('bundled-fallback', message)) {
-        vodApiState.error = message;
-      }
+      vodApiState.error = message;
     }, vodApi.mode === 'xuper' ? { method: 'POST', body: xuperPayload('catalog') } : null);
   }
 
@@ -1969,6 +1878,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     liveList = el('div', 'live-list scrollable');
     page.appendChild(liveList);
     renderLiveRows(false);
+    loadLiveCategories();
     loadLiveChannels();
 
     liveFocus = el('div', 'live-focus focusable');
@@ -2074,7 +1984,7 @@ function portalServiceCall(method, params, done, customTimeout) {
   function startLivePreview(ch) {
     if (!livePreviewVideo || !ch || (!ch.channelCode && !ch.streamUrl)) { return; }
     /* A preview belongs only to the TV tab on the home screen. */
-    if (state.screen !== 'home' || state.tab !== 0) { return; }
+    if (state.screen !== 'home' || state.tab !== 0 || !window.PalmServiceBridge) { return; }
     var key = ch.channelCode || ch.streamUrl;
     if (key === livePreviewChannel && liveMain &&
         (liveMain.classList.contains('is-preview-loading') || liveMain.classList.contains('is-preview-playing'))) {
@@ -2089,7 +1999,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     portalServiceCall('resolveLive', params, function (err, payload) {
       if (mySeq !== livePreviewSeq || state.screen !== 'home' || state.tab !== 0) { return; }
       if (!err && payload) { rememberCdnProbe('live', payload); }
-      var url = !err && payload && payload.returnValue !== false && (payload.proxyPath || payload.url);
+      var url = !window.PalmServiceBridge ? null : (!err && payload && payload.returnValue !== false && (payload.proxyPath || payload.url));
       if (!url) {
         liveMain.classList.remove('is-preview-loading');
         if (livePreviewStatus) { livePreviewStatus.textContent = ''; }
@@ -2137,19 +2047,8 @@ function portalServiceCall(method, params, done, customTimeout) {
           if (nm === 'ChannelList' || c.id === 76182) { nm = 'Todos'; }
           cats.push({ id: c.id, name: nm, code: c.code, isAddon: false });
         }
-      } else {
-        /* Fallback categories if portal takes time */
-        cats = [
-          { id: 76182, name: 'Todos' },
-          { id: 76206, name: 'Deportes' },
-          { id: 76205, name: 'Cine y Series' },
-          { id: 76188, name: 'Colombia' },
-          { id: 76191, name: 'España' },
-          { id: 76197, name: 'México' }
-        ];
       }
-      /* Append Addons Category */
-      cats.push({ id: 'addons', name: '➕ Addons M3U', isAddon: true });
+      if (vodApi.mode !== 'portal') { cats.push({ id: 'addons', name: '➕ Addons M3U', isAddon: true }); }
       liveCategories = cats;
       liveCategoriesLoaded = true;
       if (!currentLiveCategory) { currentLiveCategory = liveCategories[0]; }
@@ -2619,7 +2518,7 @@ function portalServiceCall(method, params, done, customTimeout) {
         }
       }
     }
-    return out.length ? out : VOD;
+    return out;
   }
 
   function appendCatalogGrid(page, items, startY, titleText) {
@@ -3169,13 +3068,7 @@ function portalServiceCall(method, params, done, customTimeout) {
 
   /* ================================================================ SEARCH */
   function hotSearches() {
-    var all = bundledCatalog();
-    var out = [];
-    for (var i = 0; i < all.length; i++) {
-      var cat = String((all[i] && all[i].category) || '').toLowerCase();
-      if (cat.indexOf('busqueda') !== -1) { out.push(normalizeVod(all[i], i + 1)); }
-    }
-    return out;
+    return [];
   }
 
   function buildSearch() {
@@ -3280,7 +3173,6 @@ function portalServiceCall(method, params, done, customTimeout) {
     var featured = allVodFor('destacado');
     var out = featured && featured.length ? featured.slice(0, 10) : [];
     if (!out.length) { out = hotSearches(); }
-    if (!out.length) { out = VOD.slice(0, 10); }
     return out;
   }
 
@@ -4093,6 +3985,18 @@ function portalServiceCall(method, params, done, customTimeout) {
   }
 
   function runNetdiag(button, summary, list) {
+    if (!window.PalmServiceBridge) {
+      netdiagState.running = false;
+      netdiagState.report = {
+        version: 'HTML', verdict: 'web', partial: true,
+        serviceError: 'El diagnóstico de red detallado requiere el servicio nativo webOS.',
+        screen: { w: window.innerWidth || 0, h: window.innerHeight || 0 },
+        layers: {}, hosts: [], providers: []
+      };
+      button.textContent = 'Analizar de nuevo';
+      renderNetdiag(summary, list, netdiagState.report);
+      return;
+    }
     /* Settings can be rebuilt while a slow TV still has a diagnostic request
        open. Give the new visible panel its own run and ignore the old reply;
        otherwise the reply paints an already-detached panel and viewers see
@@ -4700,7 +4604,17 @@ function portalServiceCall(method, params, done, customTimeout) {
     }
     try {
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', sub.url, true);
+      var subtitleUrl = sub.url;
+      if (!window.PalmServiceBridge && state.playerItem && state.playerItem._htmlSubtitleUrls) {
+        var subtitleItems = subtitleLanguageList(state.playerItem.streamAudioInfo || {});
+        for (var si = 0; si < subtitleItems.length; si++) {
+          if (subtitleItems[si].url === sub.url && state.playerItem._htmlSubtitleUrls[si]) {
+            subtitleUrl = state.playerItem._htmlSubtitleUrls[si];
+            break;
+          }
+        }
+      }
+      xhr.open('GET', subtitleUrl, true);
       xhr.onload = function () {
         if (mySeq !== subtitleSeq) { return; }
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -5508,6 +5422,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     /* 'normal' is the default direct path; only 'relay'/'smooth' means FFmpeg. */
     var isRelay = (state.streamMode === 'relay' || state.streamMode === 'smooth');
     if (psvBtnP1) {
+      if (!window.PalmServiceBridge) { psvBtnP1.style.display = 'none'; }
       psvBtnP1.classList.toggle('is-selected', isRelay);
       var chk1 = psvBtnP1.querySelector('.psv-check');
       if (chk1) chk1.style.display = isRelay ? 'block' : 'none';
@@ -5838,6 +5753,9 @@ function portalServiceCall(method, params, done, customTimeout) {
     }
     if (psvBtnP1) {
       psvBtnP1._activate = function () {
+        if (!window.PalmServiceBridge) {
+          return;
+        }
         /* Explicit user action must always recreate the source.  Never use
            the visual selection or a stale URL as a reason to skip it. */
         setSmoothMode(playSettingsItem(), true);
@@ -6050,15 +5968,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     if (!playerChannels) { return; }
     var bar = playerChannels.querySelector('.pc-categories');
     if (!bar) { return; }
-    var cats = liveCategories && liveCategories.length ? liveCategories : [
-      { id: 76182, name: 'Todos' },
-      { id: 76206, name: 'Deportes' },
-      { id: 76205, name: 'Cine y Series' },
-      { id: 76188, name: 'Colombia' },
-      { id: 76191, name: 'España' },
-      { id: 76197, name: 'México' },
-      { id: 'addons', name: '➕ Addons M3U', isAddon: true }
-    ];
+    var cats = liveCategories || [];
 
     /* The portal returns 38 columns.  Rebuilding all 39 pills on every filter
        detached the focused node mid-keypress, so the rail looked alive but the
@@ -6547,6 +6457,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     if (!playerVideo || !url) { return; }
     playOptions = playOptions || {};
     var useNativeHlsFallback = !!playOptions.nativeHls;
+    var browserMode = !window.PalmServiceBridge;
     stopPlayerVideo();
     relayPaused = false;
     lastPlayingUrl = url;
@@ -6715,7 +6626,7 @@ function portalServiceCall(method, params, done, customTimeout) {
       }
     };
     var mediaOption = encodeURI(JSON.stringify(transportOptions));
-    var typeStr = useNativeHlsFallback ? mime : (mime + ';mediaOption=' + mediaOption);
+    var typeStr = (browserMode || useNativeHlsFallback) ? mime : (mime + ';mediaOption=' + mediaOption);
 
     while (playerVideo.firstChild) {
       playerVideo.removeChild(playerVideo.firstChild);
@@ -6723,16 +6634,16 @@ function portalServiceCall(method, params, done, customTimeout) {
     playerVideo.removeAttribute('src');
     /* Newer webOS uses the MIME type and rejects the old custom property.
        Older sets retain the existing path above as their first attempt. */
-    if (!useNativeHlsFallback) {
+    if (!browserMode && !useNativeHlsFallback) {
       try { playerVideo.mediaOption = transportOptions; } catch (eOpt) {}
-    } else {
+    } else if (!browserMode) {
       try { playerVideo.mediaOption = null; } catch (eClearOpt) {}
     }
 
     var srcNode = document.createElement('source');
     srcNode.setAttribute('src', url);
     srcNode.setAttribute('type', typeStr);
-    if (isHls) {
+    if (isHls && !browserMode) {
       /* LG's HLS pipeline reads mediaOption from the source element. Setting
          video.src afterwards replaces that source and silently drops HLS mode
          on recent webOS releases, resulting in MEDIA_ERR_SRC_NOT_SUPPORTED. */
@@ -6740,7 +6651,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     }
     playerVideo.appendChild(srcNode);
 
-    if (!isHls) {
+    if (!isHls || browserMode) {
       /* Starfish on webOS 3–6 does not reliably start a non-HLS <source>
          alone.  Keep the source node (for mediaOption) AND assign src, also
          for the local Fluent relay.  This is the proven 1.6.15 behaviour and
@@ -6751,7 +6662,24 @@ function portalServiceCall(method, params, done, customTimeout) {
 
     playerVideo.classList.add('is-active');
     if (playerFrame) { playerFrame.style.display = 'none'; }
-    try {
+    if (browserMode && isHls && window.Hls && window.Hls.isSupported()) {
+      try {
+        window.__xuperHls = window.__xuperHls || null;
+        if (window.__xuperHls) { window.__xuperHls.destroy(); }
+        window.__xuperHls = new window.Hls({ enableWorker: false, maxBufferLength: 30 });
+        window.__xuperHls.attachMedia(playerVideo);
+        window.__xuperHls.on(window.Hls.Events.MEDIA_ATTACHED, function () {
+          window.__xuperHls.loadSource(url);
+          window.__xuperHls.on(window.Hls.Events.MANIFEST_PARSED, function () {
+            var p = playerVideo.play();
+            if (p && p.catch) { p.catch(function () { setPlayerStatus('Pulsa OK para iniciar la reproducción'); }); }
+          });
+        });
+      } catch (eHls) {
+        state.streamError = 'No se pudo iniciar HLS: ' + (eHls.message || eHls);
+        setPlayerStatus(state.streamError);
+      }
+    } else try {
       playerVideo.load();
       var p = playerVideo.play();
       if (p && p.catch) {
@@ -6808,6 +6736,11 @@ function portalServiceCall(method, params, done, customTimeout) {
         }
       }
       var resolveMethod = params.forceRelay ? 'resolveSmooth' : 'resolve';
+      if (!window.PalmServiceBridge && params.forceRelay) {
+        state.streamError = 'Modo Fluido necesita FFmpeg en el servicio nativo webOS.';
+        setPlayerStatus(state.streamError);
+        return done('');
+      }
       portalServiceCall(resolveMethod, params, function (error, payload) {
         /* Stale response: user already navigated to something else */
         if (mySeq !== resolveSeq) { return; }
@@ -6819,6 +6752,7 @@ function portalServiceCall(method, params, done, customTimeout) {
         rememberCdnProbe('vod', payload);
         item.streamMime = payload.mime || '';
         item.streamCodec = payload.codec || '';
+        item._htmlMediaToken = payload.mediaToken || '';
         if (payload.duration > 0) {
           item.duration = payload.duration;
           if (state.playerEpisode) { state.playerEpisode.duration = payload.duration; }
@@ -6852,7 +6786,12 @@ function portalServiceCall(method, params, done, customTimeout) {
             availableTracks: payload.availableTracks || []
           };
         } catch (eDiag) { /* ignore */ }
-        done(payload.proxyPath || payload.url || '');
+        var playUrlValue = payload.proxyPath || payload.url || '';
+        if (!window.PalmServiceBridge && payload.mediaToken) {
+          playUrlValue = '/api/media?token=' + encodeURIComponent(payload.mediaToken) + (payload.isHls ? '&manifest=1' : '');
+        }
+        item._htmlSubtitleUrls = (payload.subtitles || []).map(function (sub) { return sub.url; });
+        done(playUrlValue);
       });
     }
     if (isSeriesItem(item) && !state.playerEpisode && (!item.episodes || !item.episodes.length) && !item._detailsLoaded) {
@@ -6998,7 +6937,6 @@ function portalServiceCall(method, params, done, customTimeout) {
     if (!ch) { ch = CHANNELS[state.channel]; }
     if (!ch) { return; }
     if (!ch.channelCode && !ch.streamUrl) { return; }
-
     var doStart = function () {
       var mySeq = ++liveChannelSeq;
       setPlayerStatus('Cargando señal ' + (ch.name || '') + '…');
@@ -7011,7 +6949,9 @@ function portalServiceCall(method, params, done, customTimeout) {
           return;
         }
         rememberCdnProbe('live', payload);
-        var streamUrl = payload.proxyPath || payload.url;
+        var streamUrl = payload.mediaToken
+          ? '/api/media?token=' + encodeURIComponent(payload.mediaToken) + '&manifest=1'
+          : (payload.proxyPath || payload.url);
         if (!streamUrl) {
           state.streamError = 'Señal no disponible';
           setPlayerStatus(state.streamError);
@@ -7298,10 +7238,13 @@ function portalServiceCall(method, params, done, customTimeout) {
       if (f._activate) { f._activate(); }
     });
     buildSearch();
-    startServiceKeepAlive();
-    portalServiceCall('prewarm', {}, function () {});
+    if (window.PalmServiceBridge) {
+      startServiceKeepAlive();
+      portalServiceCall('prewarm', {}, function () {});
+    }
     startWelcome();
     loadVodCatalog();
+    loadLiveCategories();
     loadLiveChannels();
 
     window.__xuper = {
