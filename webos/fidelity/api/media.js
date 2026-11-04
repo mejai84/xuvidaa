@@ -96,7 +96,7 @@ module.exports = function handler(req, res) {
     if (remote.headers['content-length']) out['Content-Length'] = remote.headers['content-length'];
     if (remote.headers['content-range']) out['Content-Range'] = remote.headers['content-range'];
     const contentType = String(remote.headers['content-type'] || '');
-    if (!child && /mpegurl/i.test(contentType)) {
+    if (!child && (/mpegurl/i.test(contentType) || /\.m3u8(?:$|\?)/i.test(url.pathname + url.search))) {
       const chunks = [];
       remote.on('data', (chunk) => chunks.push(chunk));
       remote.on('end', () => {
@@ -119,7 +119,9 @@ module.exports = function handler(req, res) {
   });
   upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
   upstream.on('error', () => { if (!res.headersSent) reply(res, 502, 'No se pudo leer el medio'); else res.destroy(); });
-  req.on('close', () => upstream.destroy());
+  res.on('close', () => {
+    if (!res.writableEnded) upstream.destroy();
+  });
   upstream.end();
   };
   if (url.hostname.toLowerCase().endsWith('.cachefly.net') || url.hostname.toLowerCase() === 'cachefly.net') {

@@ -234,7 +234,15 @@
     }
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== 4) { return; }
-      if (xhr.status < 200 || xhr.status >= 300) { finish('HTTP ' + xhr.status); return; }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        var responseError = '';
+        try {
+          var errorPayload = JSON.parse(xhr.responseText || '{}');
+          responseError = errorPayload.errorText || errorPayload.errorMessage || errorPayload.error || '';
+        } catch (ignoreErrorPayload) {}
+        finish(responseError ? ('HTTP ' + xhr.status + ': ' + responseError) : ('HTTP ' + xhr.status));
+        return;
+      }
       try { finish(null, JSON.parse(xhr.responseText)); }
       catch (err) { finish('La API no devolvió JSON válido'); }
     };
@@ -668,6 +676,7 @@ function portalServiceCall(method, params, done, customTimeout) {
       item._detailWait = [done];
       portalServiceCall('detail', { contentId: item.id }, function (error, payload) {
         item._detailLoading = false;
+        var detailError = error || (payload && payload.returnValue === false && (payload.errorText || payload.errorMessage)) || '';
         if (!error && payload && payload.returnValue !== false && payload.item) {
           mergeDetail(item, payload.item);
           item.episodes = payload.episodes || [];
@@ -716,9 +725,15 @@ function portalServiceCall(method, params, done, customTimeout) {
         var wait = item._detailWait || [];
         item._detailWait = [];
         var hadWaiters = wait.length > 0;
-        for (var i = 0; i < wait.length; i++) { wait[i](item); }
+        item._detailError = detailError || '';
+        for (var i = 0; i < wait.length; i++) { wait[i](detailError ? null : item, detailError || null); }
         if (state.detail === item && state.screen === 'detail') {
           buildDetail(item);
+          if (detailError) {
+            state.streamError = 'No se pudo cargar el t\u00edtulo: ' + detailError;
+            setPlayerStatus(state.streamError);
+            return;
+          }
           if (!hadWaiters && (!playerVideo || !playerVideo.src || playerVideo.paused)) {
             startPlayerVideo(item, state.detailEpisode);
           }
@@ -6516,7 +6531,7 @@ function portalServiceCall(method, params, done, customTimeout) {
          The retry belongs to this episode only: remembering it for the whole
          series opened every following episode in Modo Fluido even after the
          viewer picked Normal. */
-      if (code === 4 && state.playerMode === 'vod' && state.streamMode === 'normal' && state.playerItem) {
+      if (window.PalmServiceBridge && code === 4 && state.playerMode === 'vod' && state.streamMode === 'normal' && state.playerItem) {
         var failedItem = state.playerItem;
         var failedKey = mediaInfoKey(failedItem) || smoothModeKey(failedItem);
         if (autoSmoothFallbackKey !== failedKey) {
@@ -6540,10 +6555,14 @@ function portalServiceCall(method, params, done, customTimeout) {
       clearBufferingNotice();
       setPlayerStatus('');
     }
-    playerVideo.onloadeddata = clearStatus;
-    playerVideo.oncanplay = function () { releaseRelaySeek(); clearStatus(); };
+    playerVideo.onloadeddata = function () {
+      if (state.playerMode !== 'vod') { clearStatus(); }
+    };
+    playerVideo.oncanplay = function () {
+      releaseRelaySeek();
+      if (state.playerMode !== 'vod') { clearStatus(); }
+    };
     playerVideo.onloadedmetadata = function () {
-      clearStatus();
       /* Prefer Spanish on the direct path as well.  Android chooses this PID
          internally; on webOS it is exposed only when the native AudioTrackList
          becomes available with the loaded media metadata. */
@@ -6662,6 +6681,13 @@ function portalServiceCall(method, params, done, customTimeout) {
 
     playerVideo.classList.add('is-active');
     if (playerFrame) { playerFrame.style.display = 'none'; }
+    if (browserMode && isHls && (!window.Hls || !window.Hls.isSupported())) {
+      state.streamError = 'Esta fuente requiere HLS.js y el navegador no pudo cargarlo.';
+      playerVideo.classList.remove('is-active');
+      if (playerFrame) { playerFrame.style.display = 'block'; }
+      setPlayerStatus(state.streamError);
+      return;
+    }
     if (browserMode && isHls && window.Hls && window.Hls.isSupported()) {
       try {
         window.__xuperHls = window.__xuperHls || null;
@@ -6835,10 +6861,10 @@ function portalServiceCall(method, params, done, customTimeout) {
         if (started || startSeq !== resolveSeq) { return; }
         started = true;
         var epNum = episode ? (episode.number || episode.seriesNumber || '') : '';
-        setPlayerStatus(epNum ? ('Cargando capítulo ' + epNum + '…') : 'Cargando capítulo…');
+        setPlayerStatus(isSeriesItem(it) ? (epNum ? ('Cargando capítulo ' + epNum + '…') : 'Cargando capítulo…') : 'Cargando película…');
         resolvePlayerStream(it, function (url) {
           if (url) { playUrl(url); }
-          else if (!state.streamError) { setPlayerStatus('Sin fuente de reproducción'); }
+          else if (!state.streamError) { state.streamError = 'El portal no entregó una fuente para este título.'; setPlayerStatus(state.streamError); }
         });
       };
       /* Never hold playback on the metadata call: after 2.5 s resolve anyway. */
@@ -6850,10 +6876,10 @@ function portalServiceCall(method, params, done, customTimeout) {
     }
     if (it._portal) {
       var epNum = episode ? (episode.number || episode.seriesNumber || '') : '';
-      setPlayerStatus(epNum ? ('Cargando capítulo ' + epNum + '…') : 'Cargando capítulo…');
+      setPlayerStatus(isSeriesItem(it) ? (epNum ? ('Cargando capítulo ' + epNum + '…') : 'Cargando capítulo…') : 'Cargando película…');
       resolvePlayerStream(it, function (url) {
         if (url) { playUrl(url); }
-        else if (!state.streamError) { setPlayerStatus('Sin fuente de reproducción'); }
+        else if (!state.streamError) { state.streamError = 'El portal no entregó una fuente para este título.'; setPlayerStatus(state.streamError); }
       });
       return;
     }
