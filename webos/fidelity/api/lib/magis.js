@@ -13,7 +13,9 @@
  * Only an ANONYMOUS device session is created (v3/snToken + v8/active).
  * No user credentials are read, stored or transmitted by this module.
  *
- * ES5/CommonJS on purpose: webOS 4 ships an old Node.js inside its services.
+ * CommonJS for the HTML/Vercel runtime. The packaged LG implementation is
+ * maintained separately under webos/services; this copy uses request-scoped
+ * deadlines available in the modern Node.js server runtime.
  */
 'use strict';
 
@@ -22,6 +24,8 @@ var https = require('https');
 var http = require('http');
 var url = require('url');
 var dnsx = require('./dnsx');
+var AsyncLocalStorage = require('async_hooks').AsyncLocalStorage;
+var operationContexts = new AsyncLocalStorage();
 
 /* --------------------------------------------------------------- constants */
 var KEY_HEX = 'e7af1ed7de1ffddd7bd3fe37ebdffde9ef3fe1ae39edfeb8';
@@ -50,6 +54,9 @@ var UA_CDN = 'Ranger/4.9.4-17294ac0';
 
 var RATE_MS = 450;          // portal pacing (observed safe value)
 var REQUEST_TIMEOUT = 20000;
+var POST_BUDGET_MS = 15000;
+var HOST_BUDGET_MS = 4000;
+var SESSION_BUDGET_MS = 45000;
 var TREE_TTL = 10 * 60 * 1000;
 var SEARCH_TTL = 3 * 60 * 1000;
 var SLB_TTL = 5 * 60 * 1000;
@@ -152,26 +159,76 @@ function genresOf(asset) {
 var session = { sn: '', userId: '', userToken: '', snToken: '', ready: false, busy: false };
 var queue = [];
 var lastCallAt = 0;
+var sessionWaiters = null;
+
+function deadlineError() {
+  var err = new Error('El portal no respondió dentro del tiempo permitido. Vuelve a intentarlo.');
+  err.code = 'PORTAL_TIMEOUT';
+  return err;
+}
+
+function operationExpired(context) {
+  return !!(context && (context.cancelled || context.deadline <= Date.now()));
+}
+
+function onOperationCancel(context, fn) {
+  if (!context) { return function () {}; }
+  context.cancelHandlers.push(fn);
+  return function () {
+    var index = context.cancelHandlers.indexOf(fn);
+    if (index !== -1) { context.cancelHandlers.splice(index, 1); }
+  };
+}
+
+/* This copy runs in the HTML server, not in the packaged LG service. A request
+   budget covers queueing, DNS, activation and HTTP together. Its cancellation
+   never leaves late callbacks free to start another portal request. */
+function runWithDeadline(timeoutMs, operation, done) {
+  var parent = operationContexts.getStore() || null;
+  var duration = Math.max(1, Number(timeoutMs) || 55000);
+  var context = { deadline: Date.now() + duration, cancelled: false, cancelHandlers: [] };
+  var finished = false;
+  var timer = setTimeout(function () { finish(deadlineError()); }, duration);
+  function finish(err, value) {
+    if (finished) { return; }
+    finished = true;
+    clearTimeout(timer);
+    context.cancelled = true;
+    var handlers = context.cancelHandlers.splice(0);
+    for (var i = 0; i < handlers.length; i++) { handlers[i](); }
+    operationContexts.run(parent, function () { done(err, value); });
+  }
+  operationContexts.run(context, function () {
+    try { operation(finish); } catch (err) { finish(err); }
+  });
+  return { cancel: function () { finish(deadlineError()); } };
+}
 
 function enqueue(fn) {
-  queue.push(fn);
+  var context = operationContexts.getStore() || null;
+  if (operationExpired(context)) { return; }
+  queue.push({ fn: fn, context: context });
   drain();
 }
 
 function drain() {
   if (session.busy || !queue.length) { return; }
+  while (queue.length && operationExpired(queue[0].context)) { queue.shift(); }
+  if (!queue.length) { return; }
   var wait = lastCallAt + RATE_MS - Date.now();
   if (wait > 0) {
     session.busy = true;
     setTimeout(function () { session.busy = false; drain(); }, wait);
     return;
   }
-  var fn = queue.shift();
+  var entry = queue.shift();
   session.busy = true;
   lastCallAt = Date.now();
-  fn(function () {
-    session.busy = false;
-    drain();
+  operationContexts.run(entry.context, function () {
+    entry.fn(function () {
+      session.busy = false;
+      drain();
+    });
   });
 }
 
@@ -190,11 +247,26 @@ function deviceDict() {
 function post(path, body, done) {
   var origDone = done;
   var settled = false;
+  var context = operationContexts.getStore() || null;
+  var activeRequest = null;
+  var budgetTimer = null;
+  var hostTimer = null;
+  var hostGeneration = 0;
+  var removeCancel = function () {};
   done = function (err, result) {
     if (settled) { return; }
     settled = true;
+    if (budgetTimer) { clearTimeout(budgetTimer); }
+    if (hostTimer) { clearTimeout(hostTimer); }
+    removeCancel();
+    if (err && activeRequest) { activeRequest.destroy(); }
     origDone(err, result);
   };
+  if (operationExpired(context)) { return done(deadlineError()); }
+  var remaining = context ? context.deadline - Date.now() : POST_BUDGET_MS;
+  if (remaining <= 0) { return done(deadlineError()); }
+  budgetTimer = setTimeout(function () { done(deadlineError()); }, Math.min(POST_BUDGET_MS, remaining));
+  removeCancel = onOperationCancel(context, function () { done(deadlineError()); });
   var payload;
   try {
     payload = encryptBody(JSON.stringify(body));
@@ -205,6 +277,10 @@ function post(path, body, done) {
   var attempt = 0;
 
   function nextHost(err) {
+    if (settled) { return; }
+    if (hostTimer) { clearTimeout(hostTimer); hostTimer = null; }
+    if (activeRequest) { activeRequest.destroy(); }
+    activeRequest = null;
     attempt++;
     if (attempt < HOSTS.length) {
       host = HOSTS[attempt];
@@ -215,12 +291,21 @@ function post(path, body, done) {
   }
 
   function setup() {
+    if (settled) { return; }
+    var generation = ++hostGeneration;
+    var attemptHost = host;
+    function failHost(err) {
+      if (settled || generation !== hostGeneration) { return; }
+      hostGeneration++;
+      nextHost(err);
+    }
+    hostTimer = setTimeout(function () { failHost(deadlineError()); }, HOST_BUDGET_MS);
     /* The portal hostname is resolved over DoH so an ISP that poisons its DNS
        cannot stop the catalogue.  TLS SNI and the HTTP Host header keep the
        original name. */
     var baseOptions = {
-      hostname: host,
-      servername: host,
+      hostname: attemptHost,
+      servername: attemptHost,
       rejectUnauthorized: false,
       path: '/api/portalCore/' + path,
       method: 'POST',
@@ -235,12 +320,17 @@ function post(path, body, done) {
     };
 
     dnsx.prepare(baseOptions, function (prepErr, options) {
-      if (prepErr) { return nextHost(prepErr); }
+      if (settled || generation !== hostGeneration) { return; }
+      if (prepErr) { return failHost(prepErr); }
 
       var req = https.request(options, function (res) {
+        if (settled || generation !== hostGeneration) { res.resume(); return; }
         var chunks = [];
         res.on('data', function (c) { chunks.push(c); });
+        res.on('error', failHost);
+        res.on('aborted', function () { failHost(new Error('La conexión con el portal se interrumpió.')); });
         res.on('end', function () {
+          if (settled || generation !== hostGeneration) { return; }
           var raw = Buffer.concat(chunks).toString('utf8');
           var answer;
           try {
@@ -270,6 +360,7 @@ function post(path, body, done) {
           done(null, answer.data !== undefined && answer.data !== null ? answer.data : answer);
         });
       });
+      activeRequest = req;
 
       req.setTimeout(REQUEST_TIMEOUT, function () {
         req.abort();
@@ -277,7 +368,7 @@ function post(path, body, done) {
       req.on('timeout', function () {
         req.abort();
       });
-      req.on('error', function (e) { nextHost(e); });
+      req.on('error', failHost);
       req.write(payload);
       req.end();
     });
@@ -289,6 +380,7 @@ function post(path, body, done) {
 function call(path, bean, opts, done) {
   if (typeof opts === 'function') { done = opts; opts = {}; }
   opts = opts || {};
+  var context = operationContexts.getStore() || null;
   enqueue(function (release) {
     var body = {};
     var k;
@@ -306,8 +398,9 @@ function call(path, bean, opts, done) {
     }
     post(path, body, function (err, data) {
       release();
+      if (operationExpired(context)) { return; }
       // Si el portal rechaza con aaa100028 (no iniciado sesión / token caducado), renovamos la sesión automáticamente
-      if (err && (err.portalCode === 'aaa100028' || /未登录|sesi[oó]n|login/i.test(err.message)) && !opts._sessionRetried) {
+      if (opts.baseFields !== false && err && (err.portalCode === 'aaa100028' || /未登录|sesi[oó]n|login/i.test(err.message)) && !opts._sessionRetried) {
         console.log('[magis] sesión no iniciada (' + (err.portalCode || err.message) + '). Renovando sesión limpia...');
         session.ready = false;
         session.userId = '';
@@ -326,83 +419,88 @@ function call(path, bean, opts, done) {
 
 function ensureSession(done) {
   if (session.ready && session.userId && session.userToken) { return done(null, session); }
-  session.ready = false;
-  var fp = {};
-  var k;
-  for (k in FINGERPRINT_FIXED) {
-    if (Object.prototype.hasOwnProperty.call(FINGERPRINT_FIXED, k)) { fp[k] = FINGERPRINT_FIXED[k]; }
+  var callerContext = operationContexts.getStore() || null;
+  if (operationExpired(callerContext)) { return; }
+  var waiter = { done: done, context: callerContext, removeCancel: function () {} };
+  if (sessionWaiters) {
+    sessionWaiters.push(waiter);
+    watchWaiter();
+    return;
   }
-  fp.androidId = randomHex(8);
-  fp.cpuId = randomHex(8);
-  fp.serialNumber = randomHex(8);
-  fp.etheMac = randomHex(6).replace(/(..)(?=.)/g, '$1:');
-  fp.gatewayMac = randomHex(6).replace(/(..)(?=.)/g, '$1:');
-  fp.wifiMac = randomHex(6).replace(/(..)(?=.)/g, '$1:');
-
-  function tryFallbackSeed(origErr) {
-    console.log('[magis] snToken/active falló: ' + (origErr && origErr.message) + '. Reintentando con otro host...');
-    if (!origErr || !origErr._retried) {
-      HOSTS.push(HOSTS.shift()); // rotar host
-      var retryErr = origErr || new Error('reintento');
-      retryErr._retried = true;
-      return setTimeout(function () {
-        ensureSession(done);
-      }, 500);
-    }
-    // Reintento final: si hay conexión exterior a github, probar seeds remotas
-    var seedUrl = 'https://raw.githubusercontent.com/xuper-plugin/kino-plugin-xuper/seeds/seeds.json';
-    var seedOptions = url.parse(seedUrl);
-    seedOptions.method = 'GET';
-    seedOptions.headers = { 'User-Agent': 'XuperTV/webOS' };
-    dnsx.prepare(seedOptions, function (seedPrepErr, seedOpts) {
-      if (seedPrepErr) { return done(origErr); }
-      var req = https.request(seedOpts, function (res) {
-        if (res.statusCode !== 200) { res.resume(); return done(origErr); }
-        var chunks = [];
-        res.on('data', function (c) { chunks.push(c); });
-        res.on('end', function () {
-          try {
-            var seeds = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-            var list = Array.isArray(seeds) ? seeds : (seeds && seeds.seeds) || [];
-            if (!list.length) { return done(origErr); }
-            var seed = list[Math.floor(Math.random() * Math.min(list.length, 50))];
-            session.userId = trim(seed.userId);
-            session.userToken = trim(seed.userToken);
-            session.sn = trim(seed.sn).toLowerCase();
-            session.ready = true;
-            done(null, session);
-          } catch (pe) {
-            done(origErr);
-          }
-        });
-      });
-      req.on('error', function () { done(origErr); });
-      req.setTimeout(10000, function () { req.abort(); done(origErr); });
-      req.end();
+  sessionWaiters = [waiter];
+  watchWaiter();
+  session.ready = false;
+  function watchWaiter() {
+    waiter.removeCancel = onOperationCancel(callerContext, function () {
+      if (!sessionWaiters) { return; }
+      var index = sessionWaiters.indexOf(waiter);
+      if (index !== -1) { sessionWaiters.splice(index, 1); }
     });
   }
-
-  call('v3/snToken', fp, { baseFields: false }, function (err, mint) {
-    if (err) { return tryFallbackSeed(err); }
-    var snToken = trim(mint && mint.snToken);
-    if (!snToken) { return tryFallbackSeed(new Error('el portal no devolvió snToken')); }
-    var sn = mint && trim(mint.sn);
-    if (!sn) {
-      sn = crypto.createHash('md5').update(snToken + SNTOKEN_SALT).digest('hex');
-    }
-    session.snToken = snToken;
-    session.sn = String(sn).toLowerCase();
-
-    call('v8/active', {
-      snToken: snToken, authVersion: '', authCode: '', preCode: '', macAddr: FIXED_MAC,
-      reserve1: '', openNum: 4, channel: 'default', matadata: '', signdata: ''
-    }, { baseFields: false }, function (err2, active) {
-      if (err2) { return tryFallbackSeed(err2); }
-      session.userId = trim(active && active.userId);
-      session.userToken = trim(active && active.userToken);
-      if (!session.userToken) { return tryFallbackSeed(new Error('el portal no activó el dispositivo')); }
-      session.ready = true;
-      done(null, session);
+  /* Activation belongs to all consumers. Give it its own finite context so
+     disconnecting one API request cannot cancel another request's login. */
+  operationContexts.run(null, function () {
+    runWithDeadline(SESSION_BUDGET_MS, function (finish) {
+      var attempt = 0;
+      function retry(err) {
+        if (attempt >= 2) { return finish(err); }
+        HOSTS.push(HOSTS.shift());
+        setTimeout(startAttempt, 500);
+      }
+      function startAttempt() {
+        var context = operationContexts.getStore();
+        if (operationExpired(context)) { return; }
+        attempt++;
+        var fp = {};
+        var k;
+        for (k in FINGERPRINT_FIXED) {
+          if (Object.prototype.hasOwnProperty.call(FINGERPRINT_FIXED, k)) { fp[k] = FINGERPRINT_FIXED[k]; }
+        }
+        fp.androidId = randomHex(8);
+        fp.cpuId = randomHex(8);
+        fp.serialNumber = randomHex(8);
+        fp.etheMac = randomHex(6).replace(/(..)(?=.)/g, '$1:');
+        fp.gatewayMac = randomHex(6).replace(/(..)(?=.)/g, '$1:');
+        fp.wifiMac = randomHex(6).replace(/(..)(?=.)/g, '$1:');
+        call('v3/snToken', fp, { baseFields: false }, function (err, mint) {
+          if (err) { return retry(err); }
+          var snToken = trim(mint && mint.snToken);
+          if (!snToken) { return retry(new Error('el portal no devolvió snToken')); }
+          var sn = mint && trim(mint.sn);
+          if (!sn) { sn = crypto.createHash('md5').update(snToken + SNTOKEN_SALT).digest('hex'); }
+          session.snToken = snToken;
+          session.sn = String(sn).toLowerCase();
+          call('v8/active', {
+            snToken: snToken, authVersion: '', authCode: '', preCode: '', macAddr: FIXED_MAC,
+            reserve1: '', openNum: 4, channel: 'default', matadata: '', signdata: ''
+          }, { baseFields: false }, function (err2, active) {
+            if (err2) { return retry(err2); }
+            var userId = trim(active && active.userId);
+            var userToken = trim(active && active.userToken);
+            if (!userId || !userToken) { return retry(new Error('el portal no activó el dispositivo')); }
+            session.userId = userId;
+            session.userToken = userToken;
+            session.ready = true;
+            finish(null, session);
+          });
+        });
+      }
+      startAttempt();
+    }, function (err) {
+      var waiters = sessionWaiters || [];
+      sessionWaiters = null;
+      if (err) {
+        session.ready = false;
+        session.userId = '';
+        session.userToken = '';
+        session.snToken = '';
+      }
+      for (var i = 0; i < waiters.length; i++) {
+        var entry = waiters[i];
+        entry.removeCancel();
+        if (operationExpired(entry.context)) { continue; }
+        operationContexts.run(entry.context, function () { entry.done(err, err ? undefined : session); });
+      }
     });
   });
 }
@@ -1299,6 +1397,7 @@ function resolveLive(channelCode, done) {
 }
 
 module.exports = {
+  runWithDeadline: runWithDeadline,
   home: home,
   search: search,
   detail: detail,

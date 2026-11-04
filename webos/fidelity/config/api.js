@@ -52,6 +52,7 @@ window.XUPERTV_API = {
   headers: {},
   imageBaseUrl: '',
   timeoutMs: 20000,
+  browserTimeoutMs: 65000,
 
   /* 'xuper' mode (generic session-based endpoint, not the portal service). */
   session: {

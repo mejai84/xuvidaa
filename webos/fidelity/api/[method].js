@@ -16,9 +16,10 @@ function b64(value) { return Buffer.from(value).toString('base64url'); }
 function sign(value) { return crypto.createHmac('sha256', secret).update(value).digest('base64url'); }
 function tokenHosts(stream) {
   const configured = (process.env.MEDIA_ALLOWED_HOSTS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+  const cacheFlyAuth = /(?:^|[?&])sign_type=cfl(?:&|$)/i.test(String((stream.headers || {})['Content-Auth'] || (stream.headers || {})['content-auth'] || ''));
   const urls = [stream.url].concat(stream.backupUrls || [], (stream.subtitles || []).map((sub) => sub && sub.url));
   return Array.from(new Set(urls.map((value) => {
-    try { const url = new URL(value); return (url.protocol === 'https:' || (url.protocol === 'http:' && (url.hostname.toLowerCase().endsWith('.cachefly.net') || url.hostname.toLowerCase() === 'cachefly.net'))) ? url.hostname.toLowerCase() : ''; } catch (_) { return ''; }
+    try { const url = new URL(value); return (url.protocol === 'https:' || (url.protocol === 'http:' && (cacheFlyAuth || url.hostname.toLowerCase().endsWith('.cachefly.net') || url.hostname.toLowerCase() === 'cachefly.net'))) ? url.hostname.toLowerCase() : ''; } catch (_) { return ''; }
   }).filter(Boolean).concat(configured)));
 }
 function issueMediaToken(stream) {
@@ -74,17 +75,30 @@ module.exports = async function handler(req, res) {
   if (method === 'resolveSmooth' && String(req.headers['x-xuper-runtime'] || '') !== 'persistent') return reply(res, 501, { returnValue: false, errorText: 'Modo Fluido necesita FFmpeg en un servidor persistente; Vercel Functions no puede alojarlo.' });
 
   const done = (err, value) => {
+    if (err && err.code === 'PORTAL_TIMEOUT') return reply(res, 504, { returnValue: false, errorText: 'El portal no respondió a tiempo. Vuelve a intentarlo.', errorCode: 'PORTAL_TIMEOUT' });
     if (err) return reply(res, 502, { returnValue: false, errorText: String(err.message || err), errorCode: err.portalCode || 1 });
     return reply(res, 200, Object.assign({ returnValue: true }, value || {}));
   };
+  // Keep the invocation alive until the callback replies, with a JSON error
+  // before Vercel's 60 s limit. The portal context cancels unfinished work.
+  const portalRequest = (operation, complete) => new Promise((resolve) => {
+    magis.runWithDeadline(55000, operation, (err, value) => {
+      try { (complete || done)(err, value); }
+      catch (error) {
+        if (!res.headersSent) done(error);
+        else res.destroy();
+      }
+      resolve();
+    });
+  });
 
   try {
     if (method === 'ping' || method === 'heartbeat' || method === 'keepAlive') return done(null, { service: 'xuper-html', alive: true });
-    if (method === 'home') return magis.home(String(input.root || 'movies'), done);
-    if (method === 'search') return magis.search(String(input.value || ''), done);
-    if (method === 'detail') return magis.detail(String(input.contentId || ''), done);
+    if (method === 'home') return portalRequest((finish) => magis.home(String(input.root || 'movies'), finish));
+    if (method === 'search') return portalRequest((finish) => magis.search(String(input.value || ''), finish));
+    if (method === 'detail') return portalRequest((finish) => magis.detail(String(input.contentId || ''), finish));
     if (method === 'resolve') {
-      return magis.resolve(String(input.contentId || ''), String(input.seriesContentId || ''), { trackIndex: input.trackIndex }, (err, stream) => {
+      return portalRequest((finish) => magis.resolve(String(input.contentId || ''), String(input.seriesContentId || ''), { trackIndex: input.trackIndex }, finish), (err, stream) => {
         if (err) return done(err);
         let mediaUrl;
         try { mediaUrl = new URL(stream.url); } catch (_) { return reply(res, 502, { returnValue: false, errorText: 'El portal devolvió una URL inválida.' }); }
@@ -106,13 +120,13 @@ module.exports = async function handler(req, res) {
         return reply(res, 200, Object.assign({ returnValue: true }, safe));
       });
     }
-    if (method === 'mediaInfo') return magis.mediaInfo(String(input.contentId || ''), String(input.seriesContentId || ''), done);
-    if (method === 'liveCategories') return magis.getLiveCategories((err, categories) => done(err, { categories: categories || [] }));
-    if (method === 'liveChannels') return magis.getLiveChannels(input.columnId || null, input.pageNum, input.pageSize, (err, channels, hasMore) => done(err, { channels: channels || [], hasMore: !!hasMore, pageNum: Number(input.pageNum) || 1 }));
-    if (method === 'prewarm') return magis.ensureSession((err) => done(err, {}));
+    if (method === 'mediaInfo') return portalRequest((finish) => magis.mediaInfo(String(input.contentId || ''), String(input.seriesContentId || ''), finish));
+    if (method === 'liveCategories') return portalRequest((finish) => magis.getLiveCategories((err, categories) => finish(err, { categories: categories || [] })));
+    if (method === 'liveChannels') return portalRequest((finish) => magis.getLiveChannels(input.columnId || null, input.pageNum, input.pageSize, (err, channels, hasMore) => finish(err, { channels: channels || [], hasMore: !!hasMore, pageNum: Number(input.pageNum) || 1 })));
+    if (method === 'prewarm') return portalRequest((finish) => magis.ensureSession((err) => finish(err, {})));
     if (method === 'abortMedia') return done(null, {});
     if (method === 'resolveLive') {
-      return magis.resolveLive(String(input.channelCode || ''), (err, stream) => {
+      return portalRequest((finish) => magis.resolveLive(String(input.channelCode || ''), finish), (err, stream) => {
         if (err) return done(err);
         let liveUrl;
         try { liveUrl = new URL(stream.url); } catch (_) { return reply(res, 502, { returnValue: false, errorText: 'El portal devolviÃ³ una URL de vivo invÃ¡lida.' }); }

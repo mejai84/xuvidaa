@@ -41,3 +41,12 @@ tipos de material que **no** se relicencia aquí.
 El repositorio no incluye contenido audiovisual ni credenciales. La app
 consulta el portal en tiempo de ejecución con una sesión anónima de
 dispositivo; la disponibilidad del servicio depende de su proveedor.
+
+## 5. HLS.js (navegador HTML)
+
+- Versión: `1.6.13`, distribución completa de `video-dev/hls.js`, licencia Apache-2.0.
+- Se carga desde jsDelivr con versión fija e integridad SHA-384 en
+  `webos/fidelity/index.html`.
+- Uso: reproducción HLS y conversión de TS (H.264/H.265) a Media Source en el
+  navegador; el equipo necesita un decodificador compatible con el códec.
+- Fuente y licencia: https://github.com/video-dev/hls.js/tree/v1.6.13

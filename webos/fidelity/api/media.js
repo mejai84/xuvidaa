@@ -28,6 +28,10 @@ module.exports = function handler(req, res) {
     entry = JSON.parse(Buffer.from(pieces[0], 'base64url').toString('utf8'));
     url = new URL(entry.url);
   } catch (_) { return reply(res, 400, 'Token inválido'); }
+  // The portal identifies CacheFly through its signed authorization metadata;
+  // its rotating customer domains use the provider's cachefly.net certificate.
+  const cacheFlyAuth = /(?:^|[?&])sign_type=cfl(?:&|$)/i.test(String((entry.headers || {})['Content-Auth'] || (entry.headers || {})['content-auth'] || ''));
+  const isCacheFly = (host) => cacheFlyAuth || host.endsWith('.cachefly.net') || host === 'cachefly.net';
   const subtitleIndex = req.query.subtitle;
   if (subtitleIndex !== undefined) {
     const index = Number(subtitleIndex);
@@ -62,12 +66,16 @@ module.exports = function handler(req, res) {
     try { childUrl = new URL(child, url); } catch (_) { return reply(res, 400, 'Segmento inválido'); }
     const childHost = childUrl.hostname.toLowerCase();
     if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
-    if ((childUrl.protocol !== 'https:' && !(childUrl.protocol === 'http:' && (childHost.endsWith('.cachefly.net') || childHost === 'cachefly.net'))) || !(entry.hosts || []).includes(childHost)) return reply(res, 403, 'Segmento no permitido');
+    if ((childUrl.protocol !== 'https:' && !(childUrl.protocol === 'http:' && isCacheFly(childHost))) || !(entry.hosts || []).includes(childHost)) return reply(res, 403, 'Segmento no permitido');
     url = childUrl;
   }
   const streamHost = url.hostname.toLowerCase();
-  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && (streamHost.endsWith('.cachefly.net') || streamHost === 'cachefly.net'))) || !(entry.hosts || []).includes(streamHost)) return reply(res, 403, 'CDN no permitido');
+  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && isCacheFly(streamHost))) || !(entry.hosts || []).includes(streamHost)) return reply(res, 403, 'CDN no permitido');
   if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
+  if (isCacheFly(streamHost) && url.protocol === 'http:') {
+    url.protocol = 'https:';
+    if (url.port === '80') url.port = '';
+  }
 
   if (req.query.manifest === '1') {
     const manifest = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:86400\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:86400.0,\n/api/media?token=' + encodeURIComponent(req.query.token) + '&child=' + encodeURIComponent(url.toString()) + '\n#EXT-X-ENDLIST\n';
@@ -81,7 +89,7 @@ module.exports = function handler(req, res) {
   const requestModule = url.protocol === 'http:' ? http : https;
   if (req.headers.range) headers.Range = String(req.headers.range).slice(0, 200);
   if (req.headers['if-range']) headers['If-Range'] = String(req.headers['if-range']).slice(0, 200);
-  const requestOptions = { method: req.method, headers: headers, timeout: 25000, protocol: url.protocol, hostname: url.hostname, port: url.port || (url.protocol === 'http:' ? 80 : 443), path: url.pathname + url.search, servername: url.protocol === 'https:' ? url.hostname : undefined };
+  const requestOptions = { method: req.method, headers: headers, timeout: 25000, protocol: url.protocol, hostname: url.hostname, port: url.port || (url.protocol === 'http:' ? 80 : 443), path: url.pathname + url.search, servername: url.protocol === 'https:' ? (isCacheFly(streamHost) ? 'cachefly.net' : url.hostname) : undefined };
   const begin = (options) => {
   const upstream = requestModule.request(options, (remote) => {
     if ([301, 302, 303, 307, 308].includes(remote.statusCode)) {
@@ -124,7 +132,7 @@ module.exports = function handler(req, res) {
   });
   upstream.end();
   };
-  if (url.hostname.toLowerCase().endsWith('.cachefly.net') || url.hostname.toLowerCase() === 'cachefly.net') {
+  if (isCacheFly(streamHost)) {
     dnsx.prepare(requestOptions, (err, options) => { if (err) return reply(res, 502, 'No se pudo resolver el CDN de TV'); begin(options); });
   } else { begin(requestOptions); }
 };

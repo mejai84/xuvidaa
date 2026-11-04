@@ -217,7 +217,7 @@
     options = options || {};
     var xhr = new XMLHttpRequest();
     var finished = false;
-    var timeout = parseInt(vodApi.timeoutMs, 10) || 10000;
+    var timeout = parseInt(options.timeoutMs, 10) || parseInt(vodApi.timeoutMs, 10) || 10000;
     function finish(error, payload) {
       if (finished) { return; }
       finished = true;
@@ -232,8 +232,9 @@
     if (options.body !== undefined && !headers['Content-Type'] && !headers['content-type']) {
       xhr.setRequestHeader('Content-Type', 'application/json;charset=utf-8');
     }
-    xhr.onreadystatechange = function () {
-      if (xhr.readyState !== 4) { return; }
+    /* Network errors and timeouts also reach readyState 4 with status 0.
+       Handle HTTP replies on load so those events keep their real cause. */
+    xhr.onload = function () {
       if (xhr.status < 200 || xhr.status >= 300) {
         var responseError = '';
         try {
@@ -246,8 +247,9 @@
       try { finish(null, JSON.parse(xhr.responseText)); }
       catch (err) { finish('La API no devolvió JSON válido'); }
     };
-    xhr.onerror = function () { finish('Error de red o CORS'); };
-    xhr.ontimeout = function () { finish('Tiempo de espera agotado'); };
+    xhr.onerror = function () { finish('No se pudo conectar con la API. Comprueba la conexión o si el navegador bloqueó la solicitud.'); };
+    xhr.ontimeout = function () { finish('La API no respondió en ' + Math.round(timeout / 1000) + ' s. Vuelve a intentarlo.'); };
+    xhr.onabort = function () { finish('La solicitud a la API fue cancelada.'); };
     try { xhr.send(options.body === undefined ? null : JSON.stringify(options.body)); }
     catch (err) { finish(err.message || 'No se pudo iniciar la petición'); }
   }
@@ -463,13 +465,14 @@ function rememberCdnProbe(kind, payload) {
 }
 
 function portalServiceCall(method, params, done, customTimeout) {
-  if (!window.PalmServiceBridge && /^(ping|heartbeat|keepAlive|prewarm|abortMedia|netdiag|fetchM3u|resolveSmooth)$/.test(method)) {
+  if (!window.PalmServiceBridge && /^(ping|heartbeat|keepAlive|abortMedia|netdiag|fetchM3u|resolveSmooth)$/.test(method)) {
     done(null, { returnValue: true, skipped: true });
     return true;
   }
   var serviceId = vodApi.serviceId || 'com.webosflux.xuptertv.fidelity.service';
   var settled = false;
-  var timeoutMs = customTimeout || parseInt(vodApi.timeoutMs, 10) || 20000;
+  var browserService = !window.PalmServiceBridge && !!vodApi.devServiceUrl;
+  var timeoutMs = customTimeout || (browserService && parseInt(vodApi.browserTimeoutMs, 10)) || parseInt(vodApi.timeoutMs, 10) || 20000;
   var callTimer = null;
   function finish(error, payload) {
     if (settled) { return; }
@@ -478,7 +481,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     done(error ? describeServiceError(error) : error, payload);
   }
   callTimer = setTimeout(function () {
-    finish('El servicio de la TV no respondió en ' + Math.round(timeoutMs / 1000) + ' s. Desenchufa la TV de la corriente 10 segundos y vuelve a abrir la app.', null);
+    finish(browserService ? ('La API no respondió en ' + Math.round(timeoutMs / 1000) + ' s. Vuelve a intentarlo.') : ('El servicio de la TV no respondió en ' + Math.round(timeoutMs / 1000) + ' s. Desenchufa la TV de la corriente 10 segundos y vuelve a abrir la app.'), null);
   }, timeoutMs + 1000);
   /* webOSTV.js defines webOS.service.request even in a plain browser; without
      the native bridge it only reports an error, so the desktop harness must
@@ -508,7 +511,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     var serviceBase = String(vodApi.devServiceUrl).replace(/\/$/, '');
     apiRequest(serviceBase + '/' + encodeURIComponent(method),
       function (error, payload) { finish(error, payload); },
-      { method: 'POST', body: params || {} });
+      { method: 'POST', body: params || {}, timeoutMs: timeoutMs });
     return true;
   }
   finish('El servicio XuperTV no está disponible', null);
@@ -666,6 +669,14 @@ function portalServiceCall(method, params, done, customTimeout) {
     done = done || function () {};
     if (!item) { return done(null); }
     if (item._detailsLoaded) { return done(item); }
+    /* The portal's getItemData endpoint returns episodes for series. Movies
+       already carry their full ficha in the catalogue and return portal100006
+       from that endpoint. A cold browser Function has no catalogue cache, so
+       let resolve request the movie's real source directly. */
+    if (!window.PalmServiceBridge && item._portal && !isSeriesItem(item)) {
+      item._detailsLoaded = true;
+      return done(item);
+    }
     if (item._detailLoading) {
       item._detailWait = item._detailWait || [];
       item._detailWait.push(done);
@@ -2713,7 +2724,7 @@ function portalServiceCall(method, params, done, customTimeout) {
        the portal for this one's real tracks (cached for the dialog/panel). */
     resetMediaSelection();
     restoreSmoothMode(item);
-    ensureMediaInfo(item);
+    if (window.PalmServiceBridge) { ensureMediaInfo(item); }
 
     buildDetail(item);
     showScreen('detail');
@@ -6396,6 +6407,10 @@ function portalServiceCall(method, params, done, customTimeout) {
     setPlayerStatus('');
     showOsdIcon('none');
     stopVodProgressTicker();
+    if (window.__xuperHls) {
+      window.__xuperHls.destroy();
+      window.__xuperHls = null;
+    }
     /* Keep the settings panel/dialog open across an audio/quality restart;
        back() and screen changes close them. Keep the loaded cues too: an
        audio/quality switch replaces the source but not the subtitles, and
@@ -6496,6 +6511,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     var rawMime = (state.playerItem && state.playerItem.streamMime) || '';
     var isHls = (url.indexOf('.m3u8') !== -1) || (rawMime.indexOf('mpegurl') !== -1) || !!(state.playerItem && state.playerItem.isHls);
     var mime = isHls ? 'application/vnd.apple.mpegurl' : ((url.indexOf('.mp4') !== -1 || rawMime.indexOf('mp4') !== -1) ? 'video/mp4' : 'video/mp2t');
+    var useBrowserHls = !!(browserMode && isHls && window.Hls && window.Hls.isSupported());
 
     playerVideo.onerror = function () {
       hideNextEpisodeLoading();
@@ -6668,9 +6684,9 @@ function portalServiceCall(method, params, done, customTimeout) {
          on recent webOS releases, resulting in MEDIA_ERR_SRC_NOT_SUPPORTED. */
       try { playerVideo.load(); } catch (eHlsReset) { /* ignore */ }
     }
-    playerVideo.appendChild(srcNode);
+    if (!useBrowserHls) { playerVideo.appendChild(srcNode); }
 
-    if (!isHls || browserMode) {
+    if ((!isHls || browserMode) && !useBrowserHls) {
       /* Starfish on webOS 3–6 does not reliably start a non-HLS <source>
          alone.  Keep the source node (for mediaOption) AND assign src, also
          for the local Fluent relay.  This is the proven 1.6.15 behaviour and
@@ -6681,26 +6697,44 @@ function portalServiceCall(method, params, done, customTimeout) {
 
     playerVideo.classList.add('is-active');
     if (playerFrame) { playerFrame.style.display = 'none'; }
-    if (browserMode && isHls && (!window.Hls || !window.Hls.isSupported())) {
+    var nativeHls = !!playerVideo.canPlayType('application/vnd.apple.mpegurl');
+    if (browserMode && isHls && !nativeHls && !useBrowserHls) {
       state.streamError = 'Esta fuente requiere HLS.js y el navegador no pudo cargarlo.';
       playerVideo.classList.remove('is-active');
       if (playerFrame) { playerFrame.style.display = 'block'; }
       setPlayerStatus(state.streamError);
       return;
     }
-    if (browserMode && isHls && window.Hls && window.Hls.isSupported()) {
+    if (useBrowserHls) {
       try {
         window.__xuperHls = window.__xuperHls || null;
         if (window.__xuperHls) { window.__xuperHls.destroy(); }
-        window.__xuperHls = new window.Hls({ enableWorker: false, maxBufferLength: 30 });
-        window.__xuperHls.attachMedia(playerVideo);
-        window.__xuperHls.on(window.Hls.Events.MEDIA_ATTACHED, function () {
-          window.__xuperHls.loadSource(url);
-          window.__xuperHls.on(window.Hls.Events.MANIFEST_PARSED, function () {
-            var p = playerVideo.play();
-            if (p && p.catch) { p.catch(function () { setPlayerStatus('Pulsa OK para iniciar la reproducción'); }); }
-          });
+        var hls = new window.Hls({ enableWorker: false, progressive: true, maxBufferLength: 30 });
+        window.__xuperHls = hls;
+        hls.on(window.Hls.Events.ERROR, function (event, data) {
+          if (!data || !data.fatal || window.__xuperHls !== hls) { return; }
+          hideNextEpisodeLoading();
+          clearBufferingNotice();
+          releaseRelaySeek();
+          var httpCode = data.response && data.response.code;
+          state.streamError = 'No se pudo reproducir el video: ' + (data.details || 'error HLS') +
+            (httpCode ? (' (HTTP ' + httpCode + ')') : '') +
+            (state.playerItem && state.playerItem.streamCodec ? (' · Códec: ' + state.playerItem.streamCodec) : '');
+          hls.destroy();
+          window.__xuperHls = null;
+          playerVideo.classList.remove('is-active');
+          if (playerFrame) { playerFrame.style.display = 'block'; }
+          setPlayerStatus(state.streamError);
         });
+        hls.on(window.Hls.Events.MEDIA_ATTACHED, function () {
+          if (window.__xuperHls === hls) { hls.loadSource(url); }
+        });
+        hls.on(window.Hls.Events.MANIFEST_PARSED, function () {
+          if (window.__xuperHls !== hls) { return; }
+          var p = playerVideo.play();
+          if (p && p.catch) { p.catch(function () { if (window.__xuperHls === hls) { setPlayerStatus('Pulsa OK para iniciar la reproducción'); } }); }
+        });
+        hls.attachMedia(playerVideo);
       } catch (eHls) {
         state.streamError = 'No se pudo iniciar HLS: ' + (eHls.message || eHls);
         setPlayerStatus(state.streamError);
@@ -6854,7 +6888,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     var epKey = (currentEp && currentEp.id) || (it && it.id) || '';
     var epInfo = epKey ? mediaInfoCache[epKey] : null;
     var knownAudio = (epInfo && epInfo.audio) || (currentEp && currentEp.streamAudioInfo) || '';
-    if (it._portal && !vodAudioChosen && !knownAudio) {
+    if (it._portal && window.PalmServiceBridge && !vodAudioChosen && !knownAudio) {
       var started = false;
       var startSeq = resolveSeq;
       var proceed = function () {
@@ -7266,6 +7300,8 @@ function portalServiceCall(method, params, done, customTimeout) {
     buildSearch();
     if (window.PalmServiceBridge) {
       startServiceKeepAlive();
+    }
+    if (window.PalmServiceBridge || vodApi.devServiceUrl) {
       portalServiceCall('prewarm', {}, function () {});
     }
     startWelcome();
