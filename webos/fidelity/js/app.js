@@ -7336,8 +7336,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     clearSearchState();
   }
 
-  window.addEventListener('beforeunload', purgeMemoryCache);
-  window.addEventListener('unload', purgeMemoryCache);
+  window.addEventListener('pagehide', purgeMemoryCache);
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
       purgeMemoryCache();
