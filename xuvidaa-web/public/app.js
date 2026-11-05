@@ -6,12 +6,18 @@ const loginStatus = document.querySelector('#login-status');
 const appStatus = document.querySelector('#app-status');
 const playerStatus = document.querySelector('#player-status');
 const results = document.querySelector('#results');
+const liveLayout = document.querySelector('#live-layout');
 const detailPanel = document.querySelector('#detail-panel');
 const playerPanel = document.querySelector('#player-panel');
 const video = document.querySelector('#video');
 
-let activeView = 'movies';
+let activeView = 'live';
 let selectedItem = null;
+const homeViews = new Set(['featured', 'movies', 'series', 'kids', 'anime', 'free']);
+const viewTitles = {
+  live: 'TV', featured: 'Destacados', movies: 'Películas', series: 'Series',
+  kids: 'Kids', anime: 'Anime', free: 'Gratis', search: 'Buscar'
+};
 
 async function request(path, body) {
   const options = { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin' };
@@ -60,14 +66,18 @@ function itemTitle(item) {
 
 function setView(view) {
   activeView = view;
+  appPanel.classList.toggle('is-live-view', view === 'live');
+  appPanel.classList.toggle('is-search-view', view === 'search');
   document.querySelectorAll('.nav-button').forEach((button) => {
     button.classList.toggle('active', button.dataset.view === view);
   });
   document.querySelector('#search-panel').hidden = view !== 'search';
   document.querySelector('#live-panel').hidden = view !== 'live';
-  document.querySelector('#view-title').textContent = ({
-    movies: 'Películas', series: 'Series', live: 'TV en vivo', search: 'Buscar'
-  })[view];
+  document.querySelector('#view-title').textContent = viewTitles[view] || 'Xuper Hydra';
+  document.querySelector('#section-title').textContent = viewTitles[view] || 'Xuper Hydra';
+  liveLayout.classList.toggle('is-live', view === 'live');
+  results.classList.toggle('is-live', view === 'live');
+  results.classList.toggle('is-featured', view === 'featured');
   detailPanel.hidden = true;
   playerPanel.hidden = true;
   results.hidden = false;
@@ -78,15 +88,17 @@ function setView(view) {
 
 function renderItems(items) {
   results.replaceChildren();
+  results.classList.toggle('is-live', activeView === 'live');
+  results.classList.toggle('is-featured', activeView === 'featured');
   if (!items.length) {
     const empty = document.createElement('p');
     empty.className = 'empty-state';
-    empty.textContent = 'No hay resultados para mostrar.';
+    empty.textContent = activeView === 'live' ? 'No hay canales disponibles.' : 'No hay resultados para mostrar.';
     results.append(empty);
     return;
   }
 
-  for (const item of items) {
+  for (const [position, item] of items.entries()) {
     if (!item || typeof item !== 'object') continue;
     const title = String(itemTitle(item) || '').trim();
     const id = itemId(item);
@@ -95,12 +107,16 @@ function renderItems(items) {
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'result-card';
+    if (activeView === 'featured' && position === 0) card.classList.add('result-card--hero');
     const heading = document.createElement('strong');
     heading.textContent = title;
     const kind = document.createElement('span');
     const isLive = Boolean(item.channelCode);
-    kind.textContent = isLive ? 'Canal en vivo' : 'Abrir detalle';
-    const artwork = item.poster || item.logo || item.landscape;
+    kind.textContent = String(item.category || item.kind || '');
+    kind.hidden = !kind.textContent;
+    const artwork = activeView === 'featured'
+      ? item.landscape || item.backdrop || item.poster || item.logo
+      : item.poster || item.logo || item.landscape;
     if (typeof artwork === 'string' && /^\/api\/image\/[a-f0-9]{24}$/.test(artwork)) {
       const image = document.createElement('img');
       image.className = 'card-artwork';
@@ -111,6 +127,12 @@ function renderItems(items) {
       card.append(image);
     }
     card.append(heading, kind);
+    if (activeView === 'live' && item.category) {
+      const category = document.createElement('small');
+      category.className = 'channel-category';
+      category.textContent = String(item.category);
+      card.append(category);
+    }
     card.addEventListener('click', () => {
       if (isLive) playLive(item);
       else openDetail(item);
@@ -245,8 +267,9 @@ function playLive(channel) {
 async function enterApplication() {
   loginPanel.hidden = true;
   appPanel.hidden = false;
-  setView('movies');
-  await loadHome('movies');
+  setView('live');
+  await loadLiveCategories();
+  await loadLiveChannels();
 }
 
 document.querySelector('#login-form').addEventListener('submit', async (event) => {
@@ -269,7 +292,7 @@ document.querySelectorAll('.nav-button').forEach((button) => {
   button.addEventListener('click', async () => {
     const view = button.dataset.view;
     setView(view);
-    if (view === 'movies' || view === 'series') await loadHome(view);
+    if (homeViews.has(view)) await loadHome(view);
     else if (view === 'live') {
       await loadLiveCategories();
       await loadLiveChannels();
@@ -278,6 +301,11 @@ document.querySelectorAll('.nav-button').forEach((button) => {
       document.querySelector('#search-input').focus();
     }
   });
+});
+
+document.querySelector('#search-shortcut').addEventListener('click', () => {
+  setView('search');
+  document.querySelector('#search-input').focus();
 });
 
 document.querySelector('#category-select').addEventListener('change', loadLiveChannels);
@@ -319,7 +347,7 @@ document.querySelector('#logout-button').addEventListener('click', async () => {
   video.load();
   appPanel.hidden = true;
   loginPanel.hidden = false;
-  setView('movies');
+  setView('live');
   document.querySelector('#access-password').focus();
 });
 

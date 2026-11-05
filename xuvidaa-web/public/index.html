@@ -2,75 +2,95 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="dark">
-  <title>XUVIDAA TV</title>
+  <title>Xuper Hydra</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
   <main class="shell">
     <section id="login-panel" class="login-panel" aria-labelledby="brand">
-      <p class="eyebrow">EDICIÓN WEB</p>
-      <h1 id="brand">XUVIDAA <span>TV</span></h1>
-      <p class="muted">Inicia sesión para acceder al catálogo.</p>
-      <form id="login-form">
-        <label for="access-password">Contraseña de acceso</label>
-        <input id="access-password" name="password" type="password" autocomplete="current-password" required>
-        <button class="primary" type="submit">Entrar</button>
-      </form>
-      <p id="login-status" class="status" role="status" aria-live="polite"></p>
+      <div class="login-card">
+        <p class="eyebrow">XUPER HYDRA</p>
+        <h1 id="brand">Iniciar sesión</h1>
+        <form id="login-form">
+          <label for="access-password">Contraseña</label>
+          <input id="access-password" name="password" type="password" autocomplete="current-password" required>
+          <button class="primary" type="submit">Entrar</button>
+        </form>
+        <p id="login-status" class="status" role="status" aria-live="polite"></p>
+      </div>
     </section>
 
     <section id="app-panel" class="app-panel" hidden>
       <header class="topbar">
-        <a class="wordmark" href="/" aria-label="XUVIDAA TV, inicio">XUVIDAA <span>TV</span></a>
-        <nav aria-label="Catálogo">
-          <button class="nav-button active" data-view="movies" type="button">Películas</button>
-          <button class="nav-button" data-view="series" type="button">Series</button>
-          <button class="nav-button" data-view="live" type="button">TV en vivo</button>
-          <button class="nav-button" data-view="search" type="button">Buscar</button>
-        </nav>
-        <button id="logout-button" class="quiet-button" type="button">Salir</button>
+        <a class="wordmark" href="/" aria-label="Xuper Hydra, inicio">Xuper Hydra</a>
+        <p id="view-title" class="topbar-title">TV</p>
+        <div class="topbar-actions">
+          <button id="search-shortcut" class="icon-button" type="button" aria-label="Buscar" title="Buscar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"></circle><path d="m16 16 5 5"></path></svg>
+          </button>
+          <button id="logout-button" class="icon-button" type="button" aria-label="Salir" title="Salir">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5"></path><path d="M10 16l4-4-4-4M14 12H3"></path></svg>
+          </button>
+        </div>
       </header>
+
+      <nav class="side-nav" aria-label="Secciones">
+        <button class="nav-button active" data-view="live" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="13" rx="1"></rect><path d="M8 21h8M12 18v3"></path></svg></span><span>TV</span></button>
+        <button class="nav-button" data-view="featured" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"></path></svg></span><span>Destacados</span></button>
+        <button class="nav-button" data-view="movies" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3"></circle><path d="m5.6 5.6 2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"></path></svg></span><span>Películas</span></button>
+        <button class="nav-button" data-view="series" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"></rect><path d="M7 4v4m5-4v4m5-4v4M7 16v4m5-4v4m5-4v4M3 9h18"></path></svg></span><span>Series</span></button>
+        <button class="nav-button" data-view="kids" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7"></circle><circle cx="6" cy="5" r="2.5"></circle><circle cx="18" cy="5" r="2.5"></circle><circle cx="9.5" cy="12" r=".7"></circle><circle cx="14.5" cy="12" r=".7"></circle><path d="M10 16c1.3 1 2.7 1 4 0"></path></svg></span><span>Kids</span></button>
+        <button class="nav-button" data-view="anime" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 4 7v6c0 4.5 3.4 7.2 8 9 4.6-1.8 8-4.5 8-9V7l-8-4Z"></path><path d="M9 12h.1M15 12h.1M9.5 16c1.6 1 3.4 1 5 0"></path></svg></span><span>Anime</span></button>
+        <button class="nav-button" data-view="free" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H20v18H7.5A3.5 3.5 0 0 0 4 23V5.5Z"></path><path d="M4 6h13M8 8v7"></path></svg></span><span>Gratis</span></button>
+        <button class="nav-button" data-view="search" type="button"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.6"></circle><path d="m16 16 5 5"></path></svg></span><span>Buscar</span></button>
+      </nav>
 
       <section id="search-panel" class="search-panel" hidden>
         <form id="search-form" role="search">
           <label class="visually-hidden" for="search-input">Buscar en el catálogo</label>
-          <input id="search-input" name="value" type="search" maxlength="160" placeholder="Buscar películas o series">
+          <input id="search-input" name="value" type="search" maxlength="160" placeholder="Película, serie o actor">
           <button class="primary" type="submit">Buscar</button>
         </form>
       </section>
 
       <section id="live-panel" class="live-panel" hidden>
-        <label for="category-select">Categoría</label>
+        <label class="visually-hidden" for="category-select">Categoría de canales</label>
         <select id="category-select"><option value="">Todas las categorías</option></select>
       </section>
 
       <div class="section-heading">
-        <div>
-          <p class="eyebrow">CATÁLOGO</p>
-          <h2 id="view-title">Películas</h2>
-        </div>
+        <h1 id="section-title">TV</h1>
         <p id="app-status" class="status" role="status" aria-live="polite"></p>
       </div>
 
-      <section id="results" class="results" aria-live="polite" aria-label="Resultados"></section>
+      <div id="live-layout" class="live-layout">
+        <div class="live-preview" aria-label="Vista previa del canal">
+          <img src="/assets/home/live_channel_default_icon.png" alt="">
+        </div>
+        <section id="results" class="results" aria-live="polite" aria-label="Canales"></section>
+      </div>
 
       <section id="detail-panel" class="detail-panel" hidden aria-live="polite">
-        <button id="back-button" class="quiet-button" type="button">Volver al catálogo</button>
-        <h2 id="detail-title"></h2>
-        <img id="detail-artwork" class="detail-artwork" alt="" hidden>
-        <p id="detail-meta" class="muted"></p>
-        <p id="detail-synopsis"></p>
-        <p id="detail-credits" class="muted"></p>
-        <button id="play-button" class="primary" type="button">Reproducir</button>
+        <button id="back-button" class="back-button" type="button">‹ Volver</button>
+        <div class="detail-layout">
+          <img id="detail-artwork" class="detail-artwork" alt="" hidden>
+          <div class="detail-copy">
+            <h2 id="detail-title"></h2>
+            <p id="detail-meta" class="muted"></p>
+            <p id="detail-synopsis"></p>
+            <p id="detail-credits" class="muted"></p>
+            <button id="play-button" class="primary" type="button">Reproducir</button>
+          </div>
+        </div>
       </section>
 
       <section id="player-panel" class="player-panel" hidden aria-label="Reproductor">
         <div class="player-heading">
           <h2 id="player-title"></h2>
-          <button id="close-player" class="quiet-button" type="button">Cerrar reproductor</button>
+          <button id="close-player" class="icon-button" type="button" aria-label="Cerrar reproductor" title="Cerrar">×</button>
         </div>
         <video id="video" controls playsinline preload="none"></video>
         <p id="player-status" class="status" role="status" aria-live="polite"></p>
