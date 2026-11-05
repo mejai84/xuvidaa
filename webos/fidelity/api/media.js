@@ -4,8 +4,18 @@ const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 const dnsx = require('./lib/dnsx');
-const configuredHosts = new Set((process.env.MEDIA_ALLOWED_HOSTS || '').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean));
 const secret = process.env.MEDIA_TOKEN_SECRET || process.env.XUPER_MEDIA_SECRET || '';
+const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+
+function mediaBase() {
+  const configured = process.env.PUBLIC_BASE_URL || process.env.PUBLIC_ORIGIN;
+  if (!configured) return '';
+  const parsed = new URL(configured);
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== '/') {
+    throw new Error('Invalid public base');
+  }
+  return parsed.origin;
+}
 
 function reply(res, status, message) {
   res.status(status).setHeader('Cache-Control', 'no-store');
@@ -14,6 +24,24 @@ function reply(res, status, message) {
 
 module.exports = function handler(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  const origin = req.headers.origin;
+  if (origin) {
+    let parsed;
+    try { parsed = new URL(origin); } catch (_) { return reply(res, 403, 'Origen no permitido'); }
+    const allowed = (process.env.XUPER_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
+    if (parsed.protocol !== 'https:' || parsed.origin !== origin || (parsed.host !== req.headers.host && !allowed.includes(origin))) {
+      return reply(res, 403, 'Origen no permitido');
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') {
+    if (!origin) return reply(res, 403, 'Origen no permitido');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, If-Range');
+    return res.status(204).send('');
+  }
   if (!secret) return reply(res, 503, 'Media relay no configurado');
   if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Método no permitido');
   const pieces = String(req.query.token || '').split('.');
@@ -28,6 +56,10 @@ module.exports = function handler(req, res) {
     entry = JSON.parse(Buffer.from(pieces[0], 'base64url').toString('utf8'));
     url = new URL(entry.url);
   } catch (_) { return reply(res, 400, 'Token inválido'); }
+  if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
+  let base;
+  try { base = mediaBase(); } catch (_) { return reply(res, 503, 'URL pública del servicio no configurada correctamente'); }
+  const reference = (source) => base + '/api/media?token=' + encodeURIComponent(req.query.token) + '&child=' + encodeURIComponent(source);
   // The portal identifies CacheFly through its signed authorization metadata;
   // its rotating customer domains use the provider's cachefly.net certificate.
   const cacheFlyAuth = /(?:^|[?&])sign_type=cfl(?:&|$)/i.test(String((entry.headers || {})['Content-Auth'] || (entry.headers || {})['content-auth'] || ''));
@@ -51,7 +83,6 @@ module.exports = function handler(req, res) {
       });
       remote.on('end', () => {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Cache-Control', 'private, no-store');
         res.status(200).send(Buffer.concat(chunks).toString('utf8'));
       });
@@ -65,24 +96,23 @@ module.exports = function handler(req, res) {
     let childUrl;
     try { childUrl = new URL(child, url); } catch (_) { return reply(res, 400, 'Segmento inválido'); }
     const childHost = childUrl.hostname.toLowerCase();
-    if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
     if ((childUrl.protocol !== 'https:' && !(childUrl.protocol === 'http:' && isCacheFly(childHost))) || !(entry.hosts || []).includes(childHost)) return reply(res, 403, 'Segmento no permitido');
     url = childUrl;
   }
   const streamHost = url.hostname.toLowerCase();
   if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && isCacheFly(streamHost))) || !(entry.hosts || []).includes(streamHost)) return reply(res, 403, 'CDN no permitido');
-  if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
   if (isCacheFly(streamHost) && url.protocol === 'http:') {
     url.protocol = 'https:';
     if (url.port === '80') url.port = '';
   }
 
-  if (req.query.manifest === '1') {
-    const manifest = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:86400\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:86400.0,\n/api/media?token=' + encodeURIComponent(req.query.token) + '&child=' + encodeURIComponent(url.toString()) + '\n#EXT-X-ENDLIST\n';
+  const hlsSource = /mpegurl/i.test(entry.mime || '') || /\.m3u8$/i.test(url.pathname);
+  if (!child && req.query.manifest === '1' && !hlsSource && /video\/mp2t|\.ts$/i.test(entry.mime || url.pathname)) {
+    const duration = Number.isFinite(entry.duration) && entry.duration > 0 ? entry.duration : 86400;
+    const manifest = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:' + Math.ceil(duration) + '\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:' + duration + ',\n' + reference(url.toString()) + '\n#EXT-X-ENDLIST\n';
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'private, no-store');
-    return res.status(200).send(manifest);
+    return res.status(200).send(req.method === 'HEAD' ? '' : manifest);
   }
 
   const headers = Object.assign({}, entry.headers || {}, { Host: url.host, Connection: 'close' });
@@ -98,21 +128,47 @@ module.exports = function handler(req, res) {
     const out = {
       'Content-Type': remote.headers['content-type'] || 'application/octet-stream',
       'Cache-Control': 'private, no-store',
-      'Accept-Ranges': remote.headers['accept-ranges'] || 'bytes',
-      'Access-Control-Allow-Origin': '*'
+      'Accept-Ranges': remote.headers['accept-ranges'] || 'bytes'
     };
     if (remote.headers['content-length']) out['Content-Length'] = remote.headers['content-length'];
     if (remote.headers['content-range']) out['Content-Range'] = remote.headers['content-range'];
     const contentType = String(remote.headers['content-type'] || '');
-    if (!child && (/mpegurl/i.test(contentType) || /\.m3u8(?:$|\?)/i.test(url.pathname + url.search))) {
+    if (req.method === 'HEAD') {
+      res.writeHead(remote.statusCode || 502, out);
+      remote.resume();
+      return res.end();
+    }
+    if (/mpegurl/i.test(contentType) || /\.m3u8$/i.test(url.pathname)) {
+      if (remote.statusCode < 200 || remote.statusCode >= 300) {
+        remote.resume(); return reply(res, 502, 'No se pudo descargar el manifiesto');
+      }
       const chunks = [];
-      remote.on('data', (chunk) => chunks.push(chunk));
+      let size = 0;
+      let failed = false;
+      const fail = () => {
+        if (failed || res.writableEnded || res.destroyed) return;
+        failed = true;
+        if (!res.headersSent) reply(res, 502, 'No se pudo leer el manifiesto');
+        else res.destroy();
+        upstream.destroy();
+      };
+      remote.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > MAX_MANIFEST_BYTES) { fail(); return; }
+        if (!failed) chunks.push(chunk);
+      });
+      remote.on('error', fail);
+      remote.on('aborted', fail);
       remote.on('end', () => {
+        if (failed || res.writableEnded || res.destroyed) return;
         let manifest;
-        try { manifest = Buffer.concat(chunks).toString('utf8').split(/\r?\n/).map((line) => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8');
+          if (!/^\s*#EXTM3U(?:\s|$)/.test(body)) return fail();
+          manifest = body.split(/\r?\n/).map((line) => {
           if (!line) return line;
-          if (line.charAt(0) === '#') return line.replace(/URI=("|')([^"']+)\1/g, (all, quote, ref) => 'URI=' + quote + '/api/media?token=' + encodeURIComponent(req.query.token) + '&child=' + encodeURIComponent(new URL(ref, url).toString()) + quote);
-          return '/api/media?token=' + encodeURIComponent(req.query.token) + '&child=' + encodeURIComponent(new URL(line, url).toString());
+          if (line.charAt(0) === '#') return line.replace(/URI=("|')([^"']+)\1/g, (all, quote, ref) => 'URI=' + quote + reference(new URL(ref, url).toString()) + quote);
+          return reference(new URL(line, url).toString());
         }).join('\n'); } catch (_) { return reply(res, 502, 'Manifiesto contiene URLs no válidas'); }
         delete out['Content-Length'];
         out['Content-Type'] = 'application/vnd.apple.mpegurl';
@@ -122,7 +178,8 @@ module.exports = function handler(req, res) {
       return;
     }
     res.writeHead(remote.statusCode || 502, out);
-    if (req.method === 'HEAD') { remote.resume(); return res.end(); }
+    remote.on('error', () => res.destroy());
+    remote.on('aborted', () => res.destroy());
     remote.pipe(res);
   });
   upstream.on('timeout', () => upstream.destroy(new Error('timeout')));

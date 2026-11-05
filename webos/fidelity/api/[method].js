@@ -1,6 +1,7 @@
 'use strict';
 
 const magis = require('./lib/magis');
+const remoteBackend = require('./lib/remote-backend');
 
 const methods = new Set([
   'ping', 'keepAlive', 'heartbeat', 'home', 'search', 'detail', 'resolve',
@@ -22,11 +23,19 @@ function tokenHosts(stream) {
     try { const url = new URL(value); return (url.protocol === 'https:' || (url.protocol === 'http:' && (cacheFlyAuth || url.hostname.toLowerCase().endsWith('.cachefly.net') || url.hostname.toLowerCase() === 'cachefly.net'))) ? url.hostname.toLowerCase() : ''; } catch (_) { return ''; }
   }).filter(Boolean).concat(configured)));
 }
-function issueMediaToken(stream) {
+function mediaExpiry(stream, live) {
+  const minimum = 15 * 60 * 1000;
+  const duration = Number(stream && stream.duration);
+  const lifetime = !live && Number.isFinite(duration) && duration > 0
+    ? Math.min(6 * 60 * 60 * 1000, Math.max(minimum, duration * 1000 + 30 * 60 * 1000))
+    : minimum;
+  return Date.now() + lifetime;
+}
+function issueMediaToken(stream, expiresAt) {
   if (!secret || !stream || !/^https?:\/\//i.test(stream.url || '')) return '';
   const hosts = tokenHosts(stream);
   const payload = b64(JSON.stringify({
-    url: stream.url, hosts: hosts, headers: stream.headers || {}, mime: stream.mime || '', subtitles: stream.subtitles || [], exp: Date.now() + 15 * 60 * 1000,
+    url: stream.url, hosts: hosts, headers: stream.headers || {}, mime: stream.mime || '', duration: Number(stream.duration) || 0, subtitles: stream.subtitles || [], exp: expiresAt,
     session: crypto.randomBytes(12).toString('hex')
   }));
   return payload + '.' + sign(payload);
@@ -35,6 +44,18 @@ function issueMediaToken(stream) {
 function reply(res, status, value) {
   res.status(status).setHeader('Cache-Control', 'no-store');
   return res.json(value);
+}
+
+function mediaProxyUrl(token, suffix) {
+  let origin = '';
+  const configured = process.env.PUBLIC_BASE_URL || process.env.PUBLIC_ORIGIN;
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (parsed.protocol === 'https:' && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash) origin = parsed.origin;
+    } catch (_) { /* Keep same-origin URLs when no valid public origin exists. */ }
+  }
+  return origin + '/api/media?token=' + encodeURIComponent(token) + (suffix || '');
 }
 
 module.exports = async function handler(req, res) {
@@ -72,6 +93,10 @@ module.exports = async function handler(req, res) {
     return reply(res, 400, { returnValue: false, errorText: 'Búsqueda demasiado larga' });
   }
   if (method === 'fetchM3u') return reply(res, 400, { returnValue: false, errorText: 'Las listas M3U requieren una fuente propia autorizada' });
+  if (process.env.XUPER_BACKEND_URL) {
+    const forwarded = await remoteBackend.forward(method, input, req.headers.host);
+    return reply(res, forwarded.status, forwarded.body);
+  }
   if (method === 'resolveSmooth' && String(req.headers['x-xuper-runtime'] || '') !== 'persistent') return reply(res, 501, { returnValue: false, errorText: 'Modo Fluido necesita FFmpeg en un servidor persistente; Vercel Functions no puede alojarlo.' });
 
   const done = (err, value) => {
@@ -106,16 +131,19 @@ module.exports = async function handler(req, res) {
         if (mediaUrl.protocol !== 'https:') {
           return reply(res, 503, { returnValue: false, errorText: 'El portal devolviÃ³ un host CDN no HTTPS.' });
         }
-        const mediaToken = issueMediaToken(stream);
+        const mediaExpiresAt = mediaExpiry(stream, false);
+        const mediaToken = issueMediaToken(stream, mediaExpiresAt);
         if (!mediaToken) return reply(res, 503, { returnValue: false, errorText: 'Falta configurar MEDIA_TOKEN_SECRET para habilitar reproducción.' });
+        const isHls = /mp2t|mpegurl|(?:^|\/)ts(?:$|;)/i.test(stream.mime || '');
         const safe = {
           mime: stream.mime, codec: stream.codec, quality: stream.quality,
           duration: stream.duration, selectedTrack: stream.selectedTrack,
           availableTracks: stream.availableTracks, trackIndex: stream.trackIndex,
-          audio: stream.audio, name: stream.name, isHls: /ts|mpegurl/i.test(stream.mime || ''), mediaToken,
+          audio: stream.audio, name: stream.name, isHls, mediaToken, mediaExpiresAt,
+          mediaUrl: mediaProxyUrl(mediaToken, isHls ? '&manifest=1' : ''),
           subtitles: (stream.subtitles || []).map((sub, index) => ({
             lang: sub.lang, format: sub.format,
-            url: '/api/media?token=' + encodeURIComponent(mediaToken) + '&subtitle=' + index
+            url: mediaProxyUrl(mediaToken, '&subtitle=' + index)
           }))
         };
         return reply(res, 200, Object.assign({ returnValue: true }, safe));
@@ -136,9 +164,11 @@ module.exports = async function handler(req, res) {
         stream.backupUrls = (stream.backupUrls || []).map((backup) => {
           try { const parsed = new URL(backup); return parsed.protocol + '//' + parsed.host + parsed.pathname + parsed.search; } catch (_) { return ''; }
         }).filter(Boolean);
-        const mediaToken = issueMediaToken(stream);
+        const mediaExpiresAt = mediaExpiry(stream, true);
+        const mediaToken = issueMediaToken(stream, mediaExpiresAt);
         if (!mediaToken) return reply(res, 503, { returnValue: false, errorText: 'Falta configurar MEDIA_TOKEN_SECRET para TV en vivo.' });
-        return reply(res, 200, { returnValue: true, name: stream.name, mime: stream.mime, isHls: true, mediaToken, url: '/api/media?token=' + encodeURIComponent(mediaToken) + '&manifest=1' });
+        const liveMediaUrl = mediaProxyUrl(mediaToken, '&manifest=1');
+        return reply(res, 200, { returnValue: true, name: stream.name, mime: stream.mime, isHls: true, mediaToken, mediaExpiresAt, mediaUrl: liveMediaUrl, url: liveMediaUrl });
       });
     }
     return reply(res, 404, { returnValue: false, errorText: 'Método no disponible en HTML' });

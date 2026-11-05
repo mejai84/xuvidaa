@@ -1,0 +1,15 @@
+.git
+scratch
+analysis
+dist
+.env
+.env.*
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/api.local.js
+**/api.production.js
+**/portal.local.js

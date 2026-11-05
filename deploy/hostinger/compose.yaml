@@ -1,0 +1,30 @@
+# Run from the repository: docker compose --env-file deploy/hostinger/.env -f deploy/hostinger/compose.yaml up -d --build
+name: xuvidaa
+services:
+  xuper:
+    build:
+      context: ../..
+      dockerfile: deploy/hostinger/Dockerfile
+    # A dedicated Compose network and a loopback-only published port keep
+    # other application networks and public interfaces separate.
+    ports:
+      - '127.0.0.1:${XUPER_PORT:-3001}:3000'
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      BIND_HOST: 0.0.0.0
+      PORT: 3000
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '2'

@@ -1993,26 +1993,50 @@ function portalServiceCall(method, params, done, customTimeout) {
   var livePreviewSeq = 0;
   var livePreviewTimer = null;
   var livePreviewChannel = '';
+  var livePreviewHls = null;
+  var livePreviewRefreshTimer = null;
   var dialogAddonsOpen = false;
 
   function stopLivePreview() {
     livePreviewSeq++;
     livePreviewChannel = '';
     if (livePreviewTimer) { clearTimeout(livePreviewTimer); livePreviewTimer = null; }
+    if (livePreviewRefreshTimer) { clearTimeout(livePreviewRefreshTimer); livePreviewRefreshTimer = null; }
     if (liveMain) { liveMain.classList.remove('is-preview-playing', 'is-preview-loading'); }
     if (livePreviewStatus) { livePreviewStatus.textContent = ''; }
+    if (livePreviewHls) {
+      try { livePreviewHls.destroy(); } catch (eHls) { /* ignore */ }
+      livePreviewHls = null;
+    }
     if (!livePreviewVideo) { return; }
     try { livePreviewVideo.pause(); } catch (ePause) { /* ignore */ }
     livePreviewVideo.removeAttribute('src');
     try { livePreviewVideo.src = ''; livePreviewVideo.load(); } catch (eClear) { /* ignore */ }
   }
 
-  function startLivePreview(ch) {
+  function scheduleLivePreviewRefresh(ch, payload, mySeq, retryAttempt) {
+    if (window.PalmServiceBridge) { return; }
+    if (livePreviewRefreshTimer) { clearTimeout(livePreviewRefreshTimer); livePreviewRefreshTimer = null; }
+    var expires = Number(payload && payload.mediaExpiresAt);
+    if (!retryAttempt && (!isFinite(expires) || expires <= 0)) { return; }
+    var delay = retryAttempt ? 15000 : Math.max(1000, expires - Date.now() - 60000);
+    livePreviewRefreshTimer = setTimeout(function () {
+      livePreviewRefreshTimer = null;
+      if (mySeq !== livePreviewSeq || state.screen !== 'home' || state.tab !== 0) { return; }
+      startLivePreview(ch, retryAttempt || 1);
+    }, delay);
+  }
+
+  function startLivePreview(ch, refreshAttempt) {
     if (!livePreviewVideo || !ch || (!ch.channelCode && !ch.streamUrl)) { return; }
+    var browserMode = !window.PalmServiceBridge;
     /* A preview belongs only to the TV tab on the home screen. */
-    if (state.screen !== 'home' || state.tab !== 0 || !window.PalmServiceBridge) { return; }
+    if (state.screen !== 'home' || state.tab !== 0) { return; }
+    /* Browser previews use portal channel identifiers, never a raw URL from
+       a saved addon. The API resolves and signs the persistent media proxy. */
+    if (browserMode && (!vodApi.devServiceUrl || !ch.channelCode)) { return; }
     var key = ch.channelCode || ch.streamUrl;
-    if (key === livePreviewChannel && liveMain &&
+    if (!refreshAttempt && key === livePreviewChannel && liveMain &&
         (liveMain.classList.contains('is-preview-loading') || liveMain.classList.contains('is-preview-playing'))) {
       return;
     }
@@ -2021,14 +2045,32 @@ function portalServiceCall(method, params, done, customTimeout) {
     var mySeq = ++livePreviewSeq;
     liveMain.classList.add('is-preview-loading');
     if (livePreviewStatus) { livePreviewStatus.textContent = 'Cargando ' + (ch.name || 'canal') + '…'; }
-    var params = ch.streamUrl ? { streamUrl: ch.streamUrl } : { channelCode: ch.channelCode };
+    var params = !browserMode && ch.streamUrl ? { streamUrl: ch.streamUrl } : { channelCode: ch.channelCode };
     portalServiceCall('resolveLive', params, function (err, payload) {
       if (mySeq !== livePreviewSeq || state.screen !== 'home' || state.tab !== 0) { return; }
       if (!err && payload) { rememberCdnProbe('live', payload); }
-      var url = !window.PalmServiceBridge ? null : (!err && payload && payload.returnValue !== false && (payload.proxyPath || payload.url));
+      var url = !err && payload && payload.returnValue !== false && (payload.proxyPath || payload.url);
+      if (browserMode) {
+        url = '';
+        if (!err && payload && payload.returnValue !== false && payload.mediaToken) {
+          var candidate = payload.mediaUrl || payload.url || '/api/media?token=' + encodeURIComponent(payload.mediaToken) + '&manifest=1';
+          try {
+            var parsed = new window.URL(candidate, window.location.href);
+            var localHttp = parsed.protocol === 'http:' && parsed.origin === window.location.origin;
+            if ((parsed.protocol === 'https:' || localHttp) && !parsed.username && !parsed.password && parsed.pathname === '/api/media' && parsed.searchParams.get('token') === payload.mediaToken) {
+              url = parsed.href;
+            }
+          } catch (eProxyUrl) { /* A malformed or unsigned source is not played. */ }
+        }
+      }
       if (!url) {
         liveMain.classList.remove('is-preview-loading');
         if (livePreviewStatus) { livePreviewStatus.textContent = ''; }
+        if (refreshAttempt && refreshAttempt < 3 && (err || !payload || payload.returnValue === false)) {
+          scheduleLivePreviewRefresh(ch, null, mySeq, refreshAttempt + 1);
+        } else if (refreshAttempt && livePreviewStatus) {
+          livePreviewStatus.textContent = 'No se pudo renovar la señal';
+        }
         return;
       }
       livePreviewVideo.onloadeddata = function () {
@@ -2041,12 +2083,51 @@ function portalServiceCall(method, params, done, customTimeout) {
         if (mySeq !== livePreviewSeq) { return; }
         liveMain.classList.remove('is-preview-loading', 'is-preview-playing');
         if (livePreviewStatus) { livePreviewStatus.textContent = ''; }
+        if (livePreviewHls) { livePreviewHls.destroy(); livePreviewHls = null; }
+        if (livePreviewRefreshTimer) { clearTimeout(livePreviewRefreshTimer); livePreviewRefreshTimer = null; }
       };
+      if (browserMode && payload.isHls && window.Hls && window.Hls.isSupported()) {
+        try {
+          var hls = new window.Hls({ enableWorker: false, progressive: true, maxBufferLength: 15 });
+          livePreviewHls = hls;
+          hls.on(window.Hls.Events.ERROR, function (event, data) {
+            if (mySeq !== livePreviewSeq || livePreviewHls !== hls || !data || !data.fatal) { return; }
+            hls.destroy();
+            livePreviewHls = null;
+            liveMain.classList.remove('is-preview-loading', 'is-preview-playing');
+            if (livePreviewStatus) { livePreviewStatus.textContent = ''; }
+            if (livePreviewRefreshTimer) { clearTimeout(livePreviewRefreshTimer); livePreviewRefreshTimer = null; }
+          });
+          hls.on(window.Hls.Events.MEDIA_ATTACHED, function () {
+            if (mySeq === livePreviewSeq && livePreviewHls === hls) { hls.loadSource(url); }
+          });
+          hls.on(window.Hls.Events.MANIFEST_PARSED, function () {
+            if (mySeq !== livePreviewSeq || livePreviewHls !== hls) { return; }
+            var play = livePreviewVideo.play();
+            if (play && play.catch) { play.catch(function () {
+              if (mySeq === livePreviewSeq) { liveMain.classList.remove('is-preview-loading'); }
+            }); }
+          });
+          hls.attachMedia(livePreviewVideo);
+          if (livePreviewHls === hls) { scheduleLivePreviewRefresh(ch, payload, mySeq, 0); }
+          return;
+        } catch (ePreviewHls) {
+          if (livePreviewHls) { livePreviewHls.destroy(); livePreviewHls = null; }
+          liveMain.classList.remove('is-preview-loading');
+          return;
+        }
+      }
+      if (browserMode && payload.isHls && !livePreviewVideo.canPlayType('application/vnd.apple.mpegurl')) {
+        liveMain.classList.remove('is-preview-loading');
+        if (livePreviewStatus) { livePreviewStatus.textContent = ''; }
+        return;
+      }
       try {
         livePreviewVideo.src = url;
         livePreviewVideo.load();
         var promise = livePreviewVideo.play();
         if (promise && promise.catch) { promise.catch(function () {}); }
+        scheduleLivePreviewRefresh(ch, payload, mySeq, 0);
       } catch (ePlay) { liveMain.classList.remove('is-preview-loading'); }
     });
   }
@@ -6396,6 +6477,7 @@ function portalServiceCall(method, params, done, customTimeout) {
   }
 
   function stopPlayerVideo() {
+    if (!window.PalmServiceBridge) { cancelBrowserLivePlayback(); }
     if (state.playerMode === 'vod' && playerVideo) {
       var stopPosition = relayBaseUrl ? (relayStartOffset + (playerVideo.currentTime || 0)) : (playerVideo.currentTime || 0);
       var stopDuration = (playerVideo && isFinite(playerVideo.duration) && playerVideo.duration > 0) ? playerVideo.duration :
@@ -6509,7 +6591,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     try { playerVideo.preload = 'auto'; } catch (ePreload) { /* ignore */ }
 
     var rawMime = (state.playerItem && state.playerItem.streamMime) || '';
-    var isHls = (url.indexOf('.m3u8') !== -1) || (rawMime.indexOf('mpegurl') !== -1) || !!(state.playerItem && state.playerItem.isHls);
+    var isHls = (url.indexOf('.m3u8') !== -1) || (rawMime.indexOf('mpegurl') !== -1) || !!(state.playerItem && state.playerItem.isHls) || (browserMode && /[?&]manifest=1(?:&|$)/.test(url));
     var mime = isHls ? 'application/vnd.apple.mpegurl' : ((url.indexOf('.mp4') !== -1 || rawMime.indexOf('mp4') !== -1) ? 'video/mp4' : 'video/mp2t');
     var useBrowserHls = !!(browserMode && isHls && window.Hls && window.Hls.isSupported());
 
@@ -6848,7 +6930,7 @@ function portalServiceCall(method, params, done, customTimeout) {
         } catch (eDiag) { /* ignore */ }
         var playUrlValue = payload.proxyPath || payload.url || '';
         if (!window.PalmServiceBridge && payload.mediaToken) {
-          playUrlValue = '/api/media?token=' + encodeURIComponent(payload.mediaToken) + (payload.isHls ? '&manifest=1' : '');
+          playUrlValue = payload.mediaUrl || payload.url || '/api/media?token=' + encodeURIComponent(payload.mediaToken) + (payload.isHls ? '&manifest=1' : '');
         }
         item._htmlSubtitleUrls = (payload.subtitles || []).map(function (sub) { return sub.url; });
         done(playUrlValue);
@@ -6989,7 +7071,30 @@ function portalServiceCall(method, params, done, customTimeout) {
 
   var liveChannelSeq = 0;
   var liveChannelDebounceTimer = null;
-  function startLiveChannel(ch, immediate) {
+  var liveRefreshTimer = null;
+
+  function cancelBrowserLivePlayback() {
+    if (window.PalmServiceBridge) { return; }
+    liveChannelSeq++;
+    if (liveRefreshTimer) { clearTimeout(liveRefreshTimer); liveRefreshTimer = null; }
+    if (liveChannelDebounceTimer) { clearTimeout(liveChannelDebounceTimer); liveChannelDebounceTimer = null; }
+  }
+
+  function scheduleLiveRefresh(ch, payload, mySeq, retryAttempt) {
+    if (window.PalmServiceBridge) { return; }
+    if (liveRefreshTimer) { clearTimeout(liveRefreshTimer); liveRefreshTimer = null; }
+    var expires = Number(payload && payload.mediaExpiresAt);
+    if (!retryAttempt && (!isFinite(expires) || expires <= 0)) { return; }
+    var delay = retryAttempt ? 15000 : Math.max(1000, expires - Date.now() - 60000);
+    liveRefreshTimer = setTimeout(function () {
+      liveRefreshTimer = null;
+      if (mySeq !== liveChannelSeq || state.playerMode !== 'live' || state.screen !== 'player') { return; }
+      startLiveChannel(ch, true, retryAttempt || 1);
+    }, delay);
+  }
+
+  function startLiveChannel(ch, immediate, refreshAttempt) {
+    if (!window.PalmServiceBridge) { cancelBrowserLivePlayback(); }
     if (liveChannelDebounceTimer) {
       clearTimeout(liveChannelDebounceTimer);
       liveChannelDebounceTimer = null;
@@ -6999,18 +7104,19 @@ function portalServiceCall(method, params, done, customTimeout) {
     if (!ch.channelCode && !ch.streamUrl) { return; }
     var doStart = function () {
       var mySeq = ++liveChannelSeq;
-      setPlayerStatus('Cargando señal ' + (ch.name || '') + '…');
+      if (!refreshAttempt) { setPlayerStatus('Cargando señal ' + (ch.name || '') + '…'); }
       var resolveParams = ch.streamUrl ? { streamUrl: ch.streamUrl } : { channelCode: ch.channelCode };
       portalServiceCall('resolveLive', resolveParams, function (err, payload) {
         if (mySeq !== liveChannelSeq) { return; }
         if (err || !payload || payload.returnValue === false) {
           state.streamError = 'No se pudo conectar con la señal' + (err ? ': ' + err : '');
           setPlayerStatus(state.streamError);
+          if (refreshAttempt && refreshAttempt < 3) { scheduleLiveRefresh(ch, null, mySeq, refreshAttempt + 1); }
           return;
         }
         rememberCdnProbe('live', payload);
         var streamUrl = payload.mediaToken
-          ? '/api/media?token=' + encodeURIComponent(payload.mediaToken) + '&manifest=1'
+          ? (payload.mediaUrl || payload.url || '/api/media?token=' + encodeURIComponent(payload.mediaToken) + '&manifest=1')
           : (payload.proxyPath || payload.url);
         if (!streamUrl) {
           state.streamError = 'Señal no disponible';
@@ -7020,6 +7126,7 @@ function portalServiceCall(method, params, done, customTimeout) {
         setPlayerStatus('');
         showInfobar();
         playUrl(streamUrl);
+        scheduleLiveRefresh(ch, payload, liveChannelSeq, 0);
       });
     };
 

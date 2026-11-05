@@ -264,6 +264,17 @@ Puntos clave:
   para que el decodificador del TV reciba fMP4 en lugar de MPEG-TS.
 - En el televisor no se descarga nada: FFmpeg y el servicio viajan en el IPK.
 
+## Navegador y servidor persistente
+
+La versión HTML usa `webos/fidelity` y sus rutas `/api`. Para mantener la
+interfaz en Vercel y ejecutar el servicio en un VPS, o alojar ambos en el VPS,
+consulta la [guía de Hostinger](deploy/hostinger/README.md). El despliegue usa
+un contenedor y puerto local propios, conservando los recursos visuales de
+la app. Primero comprueba el acceso real al portal con
+`node tools/check-portal.cjs`: una respuesta HTTP en la raíz del dominio no
+confirma que el proveedor acepte la sesión. El runtime HTTP no incluye
+FFmpeg ni el servicio Luna de LG.
+
 ## Desarrollo local
 
 La app detecta `?service=http://127.0.0.1:8910` y usa un espejo HTTP del
