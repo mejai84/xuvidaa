@@ -1,0 +1,10 @@
+FROM node:24-alpine
+WORKDIR /app
+COPY xuvidaa-web/server/index.js ./index.js
+COPY xuvidaa-web/server/prepare-upstream.js ./prepare-upstream.js
+COPY webos/services/com.webosflux.xuptertv.fidelity.service/magis.js ./upstream/magis.js
+COPY webos/services/com.webosflux.xuptertv.fidelity.service/dnsx.js ./upstream/dnsx.js
+COPY webos/services/com.webosflux.xuptertv.fidelity.service/proxy.js ./upstream/proxy.js
+COPY webos/services/com.webosflux.xuptertv.fidelity.service/ts-indexer.js ./upstream/ts-indexer.js
+RUN node prepare-upstream.js ./upstream/proxy.js
+CMD ["node", "index.js"]

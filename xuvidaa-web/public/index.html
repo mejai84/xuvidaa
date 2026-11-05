@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>XUVIDAA TV</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <section id="login-panel" class="login-panel" aria-labelledby="brand">
+      <p class="eyebrow">EDICIÓN WEB</p>
+      <h1 id="brand">XUVIDAA <span>TV</span></h1>
+      <p class="muted">Inicia sesión para acceder al catálogo.</p>
+      <form id="login-form">
+        <label for="access-password">Contraseña de acceso</label>
+        <input id="access-password" name="password" type="password" autocomplete="current-password" required>
+        <button class="primary" type="submit">Entrar</button>
+      </form>
+      <p id="login-status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="app-panel" class="app-panel" hidden>
+      <header class="topbar">
+        <a class="wordmark" href="/" aria-label="XUVIDAA TV, inicio">XUVIDAA <span>TV</span></a>
+        <nav aria-label="Catálogo">
+          <button class="nav-button active" data-view="movies" type="button">Películas</button>
+          <button class="nav-button" data-view="series" type="button">Series</button>
+          <button class="nav-button" data-view="live" type="button">TV en vivo</button>
+          <button class="nav-button" data-view="search" type="button">Buscar</button>
+        </nav>
+        <button id="logout-button" class="quiet-button" type="button">Salir</button>
+      </header>
+
+      <section id="search-panel" class="search-panel" hidden>
+        <form id="search-form" role="search">
+          <label class="visually-hidden" for="search-input">Buscar en el catálogo</label>
+          <input id="search-input" name="value" type="search" maxlength="160" placeholder="Buscar películas o series">
+          <button class="primary" type="submit">Buscar</button>
+        </form>
+      </section>
+
+      <section id="live-panel" class="live-panel" hidden>
+        <label for="category-select">Categoría</label>
+        <select id="category-select"><option value="">Todas las categorías</option></select>
+      </section>
+
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">CATÁLOGO</p>
+          <h2 id="view-title">Películas</h2>
+        </div>
+        <p id="app-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+
+      <section id="results" class="results" aria-live="polite" aria-label="Resultados"></section>
+
+      <section id="detail-panel" class="detail-panel" hidden aria-live="polite">
+        <button id="back-button" class="quiet-button" type="button">Volver al catálogo</button>
+        <h2 id="detail-title"></h2>
+        <img id="detail-artwork" class="detail-artwork" alt="" hidden>
+        <p id="detail-meta" class="muted"></p>
+        <p id="detail-synopsis"></p>
+        <p id="detail-credits" class="muted"></p>
+        <button id="play-button" class="primary" type="button">Reproducir</button>
+      </section>
+
+      <section id="player-panel" class="player-panel" hidden aria-label="Reproductor">
+        <div class="player-heading">
+          <h2 id="player-title"></h2>
+          <button id="close-player" class="quiet-button" type="button">Cerrar reproductor</button>
+        </div>
+        <video id="video" controls playsinline preload="none"></video>
+        <p id="player-status" class="status" role="status" aria-live="polite"></p>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

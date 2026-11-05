@@ -1,0 +1,55 @@
+name: xuvidaa-tv
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+      - xuvidaa-private
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.xuvidaa-tv.rule: Host(`tv.rfcsas.com`)
+      traefik.http.routers.xuvidaa-tv.entrypoints: websecure
+      traefik.http.routers.xuvidaa-tv.tls: "true"
+      traefik.http.routers.xuvidaa-tv.tls.certresolver: letsencrypt
+      traefik.http.routers.xuvidaa-tv.service: xuvidaa-tv
+      traefik.http.services.xuvidaa-tv.loadbalancer.server.port: "8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  api:
+    build:
+      context: ..
+      dockerfile: xuvidaa-web/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      XUVIDAA_WEB_PASSWORD: ${XUVIDAA_WEB_PASSWORD:?Set XUVIDAA_WEB_PASSWORD as a private Dokploy variable}
+    networks:
+      - xuvidaa-private
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8081/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  dokploy-network:
+    external: true
+    name: dokploy-network
+  xuvidaa-private:
+    name: xuvidaa-tv-private
+    driver: overlay
+    attachable: true

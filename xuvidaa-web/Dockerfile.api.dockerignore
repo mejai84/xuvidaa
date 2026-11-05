@@ -1,0 +1,12 @@
+**
+!xuvidaa-web/
+!xuvidaa-web/server/
+!xuvidaa-web/server/index.js
+!xuvidaa-web/server/prepare-upstream.js
+!webos/
+!webos/services/
+!webos/services/com.webosflux.xuptertv.fidelity.service/
+!webos/services/com.webosflux.xuptertv.fidelity.service/magis.js
+!webos/services/com.webosflux.xuptertv.fidelity.service/dnsx.js
+!webos/services/com.webosflux.xuptertv.fidelity.service/proxy.js
+!webos/services/com.webosflux.xuptertv.fidelity.service/ts-indexer.js
