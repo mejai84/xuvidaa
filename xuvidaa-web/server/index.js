@@ -45,8 +45,8 @@ const safeFields = new Set([
 ]);
 
 const accessPassword = process.env.XUVIDAA_WEB_PASSWORD;
-if (!accessPassword || Buffer.byteLength(accessPassword) < 20) {
-  process.stderr.write('XUVIDAA_WEB_PASSWORD must be a private API-service variable with at least 20 characters.\n');
+if (!accessPassword || Buffer.byteLength(accessPassword) < 14) {
+  process.stderr.write('XUVIDAA_WEB_PASSWORD must be a private API-service variable with at least 14 characters.\n');
   process.exit(1);
 }
 

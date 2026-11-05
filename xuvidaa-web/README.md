@@ -8,7 +8,7 @@ FFmpeg relay.
 ## Required private setting
 
 Set `XUVIDAA_WEB_PASSWORD` as a private variable on the `api` service in Dokploy.
-It must contain at least 20 characters. The same access password is shared by
+It must contain at least 14 characters. The same access password is shared by
 all users; this draft has no user database or per-user portal sessions.
 There is deliberately no example value and no `.env` file. The API refuses to
 start when this variable is missing. The value is used only for the browser
