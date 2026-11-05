@@ -5451,7 +5451,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     setPlayerStatus('Cambiando capítulo…');
     state.episodeSwitchTimer = setTimeout(function () {
       state.episodeSwitchTimer = null;
-      if (switchSeq !== state.episodeSwitchSeq || state.screen !== 'player') { return; }
+      if (switchSeq !== state.episodeSwitchSeq || (state.screen !== 'player' && state.screen !== 'detail')) { return; }
       startPlayerVideo(item, ep);
     }, 600);
   }
