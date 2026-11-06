@@ -10,7 +10,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { once } = require('node:events');
 const { test } = require('node:test');
-const { prepareProxySource } = require('../server/prepare-upstream');
+const { prepareProxySource, prepareMagisSource } = require('../server/prepare-upstream');
+
+test('portal adapter stops retrying a region block', () => {
+  const source = "function tryFallbackSeed(origErr) {\n    console.log('retry');\n  }";
+  const prepared = prepareMagisSource(source);
+  assert.match(prepared, /portal100024/);
+  assert.throws(() => prepareMagisSource('function changed() {}'), /portal client changed/);
+});
 
 const serviceDir = path.resolve(__dirname, '../../webos/services/com.webosflux.xuptertv.fidelity.service');
 
@@ -140,9 +147,10 @@ async function fixture(t, failSession = false) {
   });
   const request = (pathname, { body, cookie, headers = {}, method } = {}) => fetch(`http://127.0.0.1:${api.address().port}${pathname}`, {
     method: method || (body === undefined ? 'GET' : 'POST'),
+    redirect: 'manual',
     headers: { Origin: 'https://tv.rfcsas.com', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(cookie ? { Cookie: cookie } : {}), 'X-Xuvidaa-Client-IP': '203.0.113.1', ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body)
+    body: body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body))
   });
   async function login() {
     const response = await request('/api/login', { body: { password } });
@@ -224,6 +232,17 @@ test('login throttling separates verified client addresses', async (t) => {
   assert.equal((await app.request('/api/login', { body: { password: 'wrong' } })).status, 429);
   const other = await app.request('/api/login', { body: { password: app.password }, headers: { 'X-Xuvidaa-Client-IP': '203.0.113.2' } });
   assert.equal(other.status, 200);
+});
+
+test('native form login posts credentials and redirects without putting them in the URL', async (t) => {
+  const app = await fixture(t);
+  const response = await app.request('/api/login', {
+    body: `password=${encodeURIComponent(app.password)}`,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), '/');
+  assert.match(response.headers.get('set-cookie'), /^xuvidaa_session=/);
 });
 
 test('blocked seed fallback returns a controlled session failure and API stays alive', async (t) => {

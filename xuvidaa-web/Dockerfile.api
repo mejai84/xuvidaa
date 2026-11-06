@@ -6,5 +6,5 @@ COPY webos/services/com.webosflux.xuptertv.fidelity.service/magis.js ./upstream/
 COPY webos/services/com.webosflux.xuptertv.fidelity.service/dnsx.js ./upstream/dnsx.js
 COPY webos/services/com.webosflux.xuptertv.fidelity.service/proxy.js ./upstream/proxy.js
 COPY webos/services/com.webosflux.xuptertv.fidelity.service/ts-indexer.js ./upstream/ts-indexer.js
-RUN node prepare-upstream.js ./upstream/proxy.js
+RUN node prepare-upstream.js ./upstream/proxy.js ./upstream/magis.js
 CMD ["node", "index.js"]

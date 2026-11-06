@@ -18,10 +18,18 @@ function prepareProxySource(source) {
   return source;
 }
 
-if (require.main === module) {
-  const target = process.argv[2];
-  if (!target) throw new Error('Usage: node prepare-upstream.js <copied-proxy.js>');
-  fs.writeFileSync(target, prepareProxySource(fs.readFileSync(target, 'utf8')));
+function prepareMagisSource(source) {
+  const marker = 'function tryFallbackSeed(origErr) {';
+  if (source.split(marker).length !== 2) throw new Error('Upstream portal client changed; review the region error adapter.');
+  return source.replace(marker, `${marker}\n    if (origErr && String(origErr.portalCode || '') === 'portal100024') return done(origErr);`);
 }
 
-module.exports = { prepareProxySource };
+if (require.main === module) {
+  const proxyTarget = process.argv[2];
+  const magisTarget = process.argv[3];
+  if (!proxyTarget || !magisTarget) throw new Error('Usage: node prepare-upstream.js <copied-proxy.js> <copied-magis.js>');
+  fs.writeFileSync(proxyTarget, prepareProxySource(fs.readFileSync(proxyTarget, 'utf8')));
+  fs.writeFileSync(magisTarget, prepareMagisSource(fs.readFileSync(magisTarget, 'utf8')));
+}
+
+module.exports = { prepareProxySource, prepareMagisSource };

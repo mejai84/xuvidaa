@@ -341,3 +341,56 @@ video { display: block; width: 100%; height: calc(100vh - 90px); max-height: 100
   .detail-layout { grid-template-columns: 1fr; gap: 20px; }
   .detail-artwork { width: min(70vw, 300px); margin: auto; }
 }
+
+/* VIDAA's built-in browser may lag behind current CSS layout features. Keep
+   the same composition with flexbox and ordinary dimensions as a fallback. */
+.login-panel { display: flex; align-items: center; justify-content: center; }
+.login-card { width: 430px; max-width: calc(100% - 36px); }
+.icon-button, .nav-icon { display: flex; align-items: center; justify-content: center; }
+.nav-icon { flex: 0 0 22px; }
+.live-layout.is-live { display: flex; }
+.live-layout.is-live .live-preview { display: flex; align-items: center; justify-content: center; flex: 3.25 1 0; width: auto; height: 56vh; max-height: 100%; }
+.live-layout.is-live .results { flex: 1 1 250px; width: auto; }
+.results { display: flex; flex-flow: row wrap; align-content: flex-start; }
+.results > .result-card { flex: 0 0 calc(25% - 12px); }
+.results.is-featured > .result-card--hero { flex-basis: calc(50% - 12px); min-height: 360px; }
+.card-artwork { height: 260px; aspect-ratio: auto; }
+.results.is-featured .result-card--hero .card-artwork { height: 100%; min-height: 350px; }
+.results.is-live { display: flex; flex-flow: column nowrap; }
+.results.is-live .result-card { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; width: 100%; }
+.results.is-live .result-card strong { flex: 1 1 120px; }
+.results.is-live .result-card span, .results.is-live .result-card .channel-category { flex: 0 1 auto; }
+.results.is-live .card-artwork { flex: 0 0 62px; height: 52px; }
+.detail-layout { display: flex; gap: 5vw; }
+.detail-artwork { flex: 0 1 30%; width: 30%; }
+.player-panel { top: 0; right: 0; bottom: 0; left: 0; }
+
+@media (max-width: 900px) {
+  .results > .result-card { flex-basis: calc(33.333% - 10px); }
+  .results.is-featured > .result-card--hero { flex-basis: calc(66.666% - 10px); }
+  .live-layout.is-live .live-preview { flex: 1.7 1 0; height: 40vh; }
+}
+
+@media (max-width: 600px) {
+  html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  .shell { height: auto; min-height: 100vh; }
+  .app-panel { height: auto; min-height: 100vh; overflow: visible; }
+  .topbar { position: relative; top: auto; left: auto; }
+  .side-nav { position: relative; top: auto; right: auto; bottom: auto; left: auto; width: 100%; height: auto; min-height: 50px; padding: 4px 8px; white-space: nowrap; }
+  .side-nav .nav-button { display: inline-flex; width: auto; max-width: 46vw; margin: 2px; }
+  .section-heading, .search-panel, .live-panel, .live-layout { position: relative; top: auto !important; right: auto; bottom: auto; left: auto; width: auto; margin: 12px 16px; }
+  .section-heading { min-height: 34px; }
+  .section-heading .status { max-width: 62%; text-align: right; }
+  .search-panel { padding: 8px; }
+  .live-layout { min-height: 48vh; }
+  .live-layout.is-live { display: flex; flex-direction: column; }
+  .live-layout.is-live .live-preview { display: none; }
+  .live-layout.is-live .results { flex: 1 1 auto; width: 100%; }
+  .results { max-height: none; overflow: visible; }
+  .results > .result-card { flex-basis: calc(50% - 8px); }
+  .results.is-featured > .result-card--hero { flex-basis: 100%; min-height: 230px; }
+  .results.is-featured .result-card--hero .card-artwork { min-height: 230px; }
+  .detail-panel { position: relative; top: auto; right: auto; bottom: auto; left: auto; min-height: 60vh; padding: 24px 18px; }
+  .detail-layout { flex-direction: column; gap: 20px; }
+  .detail-artwork { flex: 0 0 auto; width: min(70vw, 300px); margin: auto; }
+}

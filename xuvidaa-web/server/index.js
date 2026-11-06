@@ -6,6 +6,7 @@ const events = require('node:events');
 const http = require('node:http');
 const https = require('node:https');
 const net = require('node:net');
+const querystring = require('node:querystring');
 const { URL } = require('node:url');
 
 // The upstream portal and media modules may log diagnostic URLs. Keep them
@@ -76,6 +77,7 @@ https.request = function guardedHttpsRequest(options, ...args) {
 let proxyStart;
 let portalReady = false;
 let portalStart;
+let portalGeneration = 0;
 
 function ensureMediaProxy() {
   if (!proxyStart) {
@@ -89,13 +91,25 @@ function ensureMediaProxy() {
 function ensurePortalSession() {
   if (portalReady) return Promise.resolve();
   if (!portalStart) {
+    const generation = ++portalGeneration;
     portalStart = new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (generation === portalGeneration) portalStart = null;
+        reject(Object.assign(new Error('portal session timeout'), { code: 'PORTAL_SESSION_TIMEOUT' }));
+      }, 50_000);
       magis.ensureSession((err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         if (err) {
-          portalStart = null;
+          if (generation === portalGeneration) portalStart = null;
           reject(err);
           return;
         }
+        if (generation !== portalGeneration) return;
         portalReady = true;
         resolve();
       });
@@ -248,7 +262,7 @@ async function serveArtwork(req, res, pathname) {
   upstreamRequest.end();
 }
 
-function readJson(req) {
+function readBody(req, parse) {
   return new Promise((resolve, reject) => {
     let size = 0;
     let rejected = false;
@@ -265,13 +279,25 @@ function readJson(req) {
     });
     req.on('end', () => {
       try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {});
+        resolve(chunks.length ? parse(Buffer.concat(chunks).toString('utf8')) : {});
       } catch (_) {
         reject(Object.assign(new Error('invalid body'), { status: 400 }));
       }
     });
     req.on('error', reject);
   });
+}
+
+function readJson(req) {
+  return readBody(req, (value) => JSON.parse(value));
+}
+
+function readLoginBody(req) {
+  const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  if (contentType === 'application/x-www-form-urlencoded') {
+    return readBody(req, (value) => querystring.parse(value));
+  }
+  return readJson(req);
 }
 
 function textField(value, maxLength) {
@@ -292,16 +318,29 @@ function portalCall(res, method, args, transform) {
       sendError(res, 501, 'PORTAL_METHOD_UNAVAILABLE');
       return;
     }
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      sendError(res, 504, 'PORTAL_REQUEST_TIMEOUT');
+    }, 50_000);
     fn(...args, (err, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (err) {
         sendError(res, 502, 'PORTAL_REQUEST_FAILED');
         return;
       }
-      Promise.resolve(transform ? transform(result) : sanitizePortalData(result))
+      Promise.resolve().then(() => transform ? transform(result) : sanitizePortalData(result))
         .then((payload) => sendJson(res, 200, payload))
         .catch(() => sendError(res, 502, 'MEDIA_PROXY_FAILED'));
     });
-  }).catch(() => sendError(res, 502, 'PORTAL_SESSION_UNAVAILABLE'));
+  }).catch((err) => {
+    if (err && err.code === 'PORTAL_SESSION_TIMEOUT') sendError(res, 504, 'PORTAL_SESSION_TIMEOUT');
+    else if (err && String(err.portalCode || '') === 'portal100024') sendError(res, 403, 'PORTAL_REGION_BLOCKED');
+    else sendError(res, 502, 'PORTAL_SESSION_UNAVAILABLE');
+  });
 }
 
 function proxyLoopbackPath(localUrl, expectedPrefix) {
@@ -556,7 +595,7 @@ function handleApi(req, res, pathname) {
   if (req.method === 'POST' && pathname === '/api/login') {
     if (!isSafeOrigin(req)) return sendError(res, 403, 'ORIGIN_NOT_ALLOWED');
     if (loginRateLimited(req)) return sendError(res, 429, 'LOGIN_RATE_LIMITED');
-    readJson(req).then((body) => {
+    readLoginBody(req).then((body) => {
       const submitted = typeof body.password === 'string' ? Buffer.from(body.password) : Buffer.alloc(0);
       const expected = Buffer.from(accessPassword);
       const matches = submitted.length === expected.length && crypto.timingSafeEqual(submitted, expected);
@@ -566,9 +605,13 @@ function handleApi(req, res, pathname) {
       }
       const expiry = Math.floor(Date.now() / 1000) + sessionLifetimeSeconds;
       const value = `${expiry}.${signSession(expiry)}`;
-      sendJson(res, 200, { authenticated: true }, {
+      const headers = {
         'Set-Cookie': `${sessionCookie}=${value}; Path=/; Max-Age=${sessionLifetimeSeconds}; HttpOnly; Secure; SameSite=Strict`
-      });
+      };
+      if (String(req.headers['content-type'] || '').toLowerCase().startsWith('application/x-www-form-urlencoded')) {
+        res.writeHead(303, { ...headers, Location: '/' });
+        res.end();
+      } else sendJson(res, 200, { authenticated: true }, headers);
     }).catch((err) => sendError(res, err.status || 400, 'INVALID_REQUEST'));
     return;
   }
