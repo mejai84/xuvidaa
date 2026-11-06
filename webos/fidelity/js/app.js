@@ -240,6 +240,9 @@
         try {
           var errorPayload = JSON.parse(xhr.responseText || '{}');
           responseError = errorPayload.errorText || errorPayload.errorMessage || errorPayload.error || '';
+          if (errorPayload.errorCode && /^[A-Za-z0-9_-]{1,40}$/.test(String(errorPayload.errorCode))) {
+            responseError += (responseError ? ' ' : '') + '[' + errorPayload.errorCode + ']';
+          }
         } catch (ignoreErrorPayload) {}
         finish(responseError ? ('HTTP ' + xhr.status + ': ' + responseError) : ('HTTP ' + xhr.status));
         return;
@@ -252,6 +255,17 @@
     xhr.onabort = function () { finish('La solicitud a la API fue cancelada.'); };
     try { xhr.send(options.body === undefined ? null : JSON.stringify(options.body)); }
     catch (err) { finish(err.message || 'No se pudo iniciar la petición'); }
+  }
+
+  function showPortalStatus(message) {
+    var notice = $('portal-status');
+    if (!notice) { return; }
+    notice.textContent = message || '';
+    notice.hidden = !message;
+  }
+
+  function isTerminalPortalError(error) {
+    return /portal100024/i.test(String(error || ''));
   }
 
   /* Some portal catalogues publish every season as a separate series card
@@ -581,6 +595,9 @@ function portalServiceCall(method, params, done, customTimeout) {
     portalState.refreshing = true;
     portalState.roots = 0;
     portalState.error = null;
+    vodApiState.loading = true;
+    vodApiState.error = null;
+    showPortalStatus('Conectando con el catálogo del portal…');
     var fresh = {};
     var index = 0;
     function next() {
@@ -591,10 +608,21 @@ function portalServiceCall(method, params, done, customTimeout) {
         if (!applyPortalRefresh(fresh)) {
           vodApiState.error = portalState.error || 'El portal no devolvió títulos.';
         }
+        showPortalStatus(vodApiState.error || portalState.error || '');
         return;
       }
       var root = PORTAL_ROOTS[index++];
       portalServiceCall('home', { root: root }, function (error, payload) {
+        if (error && isTerminalPortalError(error)) {
+          portalState.error = error;
+          portalState.refreshing = false;
+          portalState.lastSync = Date.now();
+          vodApiState.loading = false;
+          applyPortalRefresh(fresh);
+          vodApiState.error = error;
+          showPortalStatus(error);
+          return;
+        }
         if (!error && payload && payload.returnValue !== false && payload.items && payload.items.length) {
           fresh[root] = payload.items;
           portalState.roots++;
@@ -2136,6 +2164,10 @@ function portalServiceCall(method, params, done, customTimeout) {
       return;
     }
     portalServiceCall('liveCategories', {}, function (err, payload) {
+      if (err) {
+        portalState.error = err;
+        showPortalStatus(err);
+      }
       var cats = [];
       if (payload && payload.categories && payload.categories.length) {
         for (var i = 0; i < payload.categories.length; i++) {
@@ -2282,6 +2314,14 @@ function portalServiceCall(method, params, done, customTimeout) {
         }
 
         liveChannelsLoading = false;
+        if (err && isTerminalPortalError(err)) {
+          liveChannelsLoaded = true;
+          portalState.error = err;
+          showPortalStatus(err);
+          renderLiveRows(false);
+          renderPlayerChannels();
+          return;
+        }
         if (err && !liveChannelsLoaded) {
           setTimeout(function () {
             if (requestSeq === liveChannelRequestSeq) { loadLiveChannels(requestedColumnId); }

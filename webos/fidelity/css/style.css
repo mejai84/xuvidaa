@@ -94,6 +94,26 @@ div, section, span { outline: none; }
    ============================================================================= */
 #screen-home { background: #0b0b0b; }        /* app:defaultBgId color_0b0b0b */
 
+.portal-status {
+  position: absolute;
+  z-index: 40;
+  left: 390px;
+  right: 72px;
+  top: 102px;
+  max-height: 150px;
+  overflow: hidden;
+  padding: 16px 22px;
+  border-left: 5px solid #f2a900;
+  border-radius: 3px;
+  background: rgba(18, 18, 18, .94);
+  color: #f1f1f1;
+  font-size: 25px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.portal-status[hidden] { display: none !important; }
+
 /* ViewPager2 : match_parent, marginTop 93dp
    The pager keeps a 1920x940 viewport and slides the pages inside it. Keeping
    the layer small (instead of a 13440 px wide strip) also stops Chromium from
