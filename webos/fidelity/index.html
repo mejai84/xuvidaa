@@ -7,9 +7,20 @@
 <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Xuper Hydra</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/access.css">
 </head>
 <body>
-<div id="app">
+<main id="access-gate" class="access-gate" aria-labelledby="access-title">
+  <form id="access-form" class="access-card" autocomplete="on">
+    <h1 id="access-title">XuperTV</h1>
+    <p>Ingresa la clave de acceso para continuar.</p>
+    <label for="access-password">Contraseña</label>
+    <input id="access-password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+    <button id="access-submit" type="submit">Ingresar</button>
+    <div id="access-message" class="access-message" role="status" aria-live="polite"></div>
+  </form>
+</main>
+<div id="app" hidden>
 
   <!-- ============================================================
        WELCOME  (activity_welcome.xml + welcome_style)
@@ -28,7 +39,6 @@
     <div id="home-pages" class="home-pages"></div>
     <div class="home-sidebar-bg"></div>
     <div id="home-tabs" class="home-tabs"></div>
-    <div class="home-port-credit">Port LG webOS <span>CRISTIANCODEV</span></div>
     <div id="home-notify" class="home-notify"></div>
   </section>
 
@@ -286,12 +296,7 @@
 </div>
 <!-- webOS TV bridge for Luna service communication -->
 <script src="js/webOSTV.js"></script>
-<!-- Real Magis portal catalog snapshot (anonymous session, generated at
-     build time). Provides an instant first paint with the real catalog. -->
-<script src="data/portal.js"></script>
-<!-- Local, authorized VOD endpoint configuration.  Keep this file before app.js. -->
-<script src="config/api.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js" integrity="sha384-z+tuLqMWl1/cPv7O+39RO0EURSNvorimpcCaMgeNwU+qFBx+AlUIl7jaAwg0cYil" crossorigin="anonymous"></script>
-<script src="js/app.js"></script>
+<!-- The access screen starts the application after the VPS session is valid. -->
+<script src="js/access.js"></script>
 </body>
 </html>

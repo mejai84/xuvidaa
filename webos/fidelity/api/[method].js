@@ -1,7 +1,6 @@
 'use strict';
 
 const magis = require('./lib/magis');
-const remoteBackend = require('./lib/remote-backend');
 
 const methods = new Set([
   'ping', 'keepAlive', 'heartbeat', 'home', 'search', 'detail', 'resolve',
@@ -93,11 +92,7 @@ module.exports = async function handler(req, res) {
     return reply(res, 400, { returnValue: false, errorText: 'Búsqueda demasiado larga' });
   }
   if (method === 'fetchM3u') return reply(res, 400, { returnValue: false, errorText: 'Las listas M3U requieren una fuente propia autorizada' });
-  if (process.env.XUPER_BACKEND_URL) {
-    const forwarded = await remoteBackend.forward(method, input, req.headers.host);
-    return reply(res, forwarded.status, forwarded.body);
-  }
-  if (method === 'resolveSmooth' && String(req.headers['x-xuper-runtime'] || '') !== 'persistent') return reply(res, 501, { returnValue: false, errorText: 'Modo Fluido necesita FFmpeg en un servidor persistente; Vercel Functions no puede alojarlo.' });
+  if (method === 'resolveSmooth') return reply(res, 501, { returnValue: false, errorText: 'Modo Fluido requiere el relay FFmpeg local del televisor LG y no está disponible en esta edición web.' });
 
   const done = (err, value) => {
     if (err && err.code === 'PORTAL_TIMEOUT') return reply(res, 504, { returnValue: false, errorText: 'El portal no respondió a tiempo. Vuelve a intentarlo.', errorCode: 'PORTAL_TIMEOUT' });
@@ -105,8 +100,8 @@ module.exports = async function handler(req, res) {
     if (err) return reply(res, 502, { returnValue: false, errorText: String(err.message || err), errorCode: err.portalCode || 1 });
     return reply(res, 200, Object.assign({ returnValue: true }, value || {}));
   };
-  // Keep the invocation alive until the callback replies, with a JSON error
-  // before Vercel's 60 s limit. The portal context cancels unfinished work.
+  // Keep this HTTP request alive until the portal callback replies. The portal
+  // context cancels unfinished work when the request deadline is reached.
   const portalRequest = (operation, complete) => new Promise((resolve) => {
     magis.runWithDeadline(55000, operation, (err, value) => {
       try { (complete || done)(err, value); }

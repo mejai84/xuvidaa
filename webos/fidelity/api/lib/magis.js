@@ -13,7 +13,7 @@
  * Only an ANONYMOUS device session is created (v3/snToken + v8/active).
  * No user credentials are read, stored or transmitted by this module.
  *
- * CommonJS for the HTML/Vercel runtime. The packaged LG implementation is
+ * CommonJS for the persistent HTML/VPS runtime. The packaged LG implementation is
  * maintained separately under webos/services; this copy uses request-scoped
  * deadlines available in the modern Node.js server runtime.
  */

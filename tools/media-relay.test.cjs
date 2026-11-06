@@ -127,20 +127,19 @@ test('invalid public backend URL is rejected without opening a connection', asyn
   assert.equal(run.connections, 0);
 });
 
-test('Vercel can fetch media only when its exact HTTPS origin is configured', async () => {
-  const settings = { headers: { host: 'api.example', origin: 'https://xuvidaa.vercel.app' }, body: '#EXTM3U\nsegment.ts\n' };
-  const denied = await request(settings);
-  assert.equal(denied.response.statusCode, 403);
-  assert.equal(denied.connections, 0);
-  const allowed = await request({ ...settings, env: { XUPER_ALLOWED_ORIGINS: 'https://xuvidaa.vercel.app' } });
-  assert.equal(allowed.response.statusCode, 200);
-  assert.equal(allowed.response.headers['access-control-allow-origin'], 'https://xuvidaa.vercel.app');
-  assert.match(allowed.response.headers['access-control-expose-headers'], /Content-Range/);
+test('same-origin media works and cross-origin media is rejected without CORS', async () => {
+  const settings = { headers: { host: 'api.example', origin: 'https://api.example' }, body: '#EXTM3U\nsegment.ts\n' };
+  const sameOrigin = await request(settings);
+  assert.equal(sameOrigin.response.statusCode, 200);
+  assert.equal(sameOrigin.connections, 1);
+  assert.equal(sameOrigin.response.headers['access-control-allow-origin'], undefined);
+  const crossOrigin = await request({ ...settings, headers: { host: 'api.example', origin: 'https://outside.example' } });
+  assert.equal(crossOrigin.response.statusCode, 403);
+  assert.equal(crossOrigin.connections, 0);
 });
 
-test('media preflight accepts the configured browser without contacting the CDN', async () => {
-  const run = await request({ method: 'OPTIONS', headers: { origin: 'https://xuvidaa.vercel.app' }, env: { XUPER_ALLOWED_ORIGINS: 'https://xuvidaa.vercel.app' } });
-  assert.equal(run.response.statusCode, 204);
+test('media preflight is not exposed because the app uses same-origin requests', async () => {
+  const run = await request({ method: 'OPTIONS', headers: { host: 'api.example', origin: 'https://api.example' } });
+  assert.equal(run.response.statusCode, 405);
   assert.equal(run.connections, 0);
-  assert.equal(run.response.headers['access-control-allow-headers'], 'Range, If-Range');
 });

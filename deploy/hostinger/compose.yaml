@@ -1,19 +1,31 @@
-# Run from the repository: docker compose --env-file deploy/hostinger/.env -f deploy/hostinger/compose.yaml up -d --build
-name: xuvidaa
+# Deploy this as its own Docker Compose application in Dokploy.
+name: xuvidaa-tv
 services:
   xuper:
     build:
       context: ../..
       dockerfile: deploy/hostinger/Dockerfile
-    # A dedicated Compose network and a loopback-only published port keep
-    # other application networks and public interfaces separate.
-    ports:
-      - '127.0.0.1:${XUPER_PORT:-3001}:3000'
-    env_file: .env
+    expose:
+      - '3000'
+    networks:
+      - xuvidaa-tv-private
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=xuvidaa-tv-private
+      - traefik.http.routers.xuvidaa-tv.rule=Host(`tv.rfcsas.com`)
+      - traefik.http.routers.xuvidaa-tv.entrypoints=websecure
+      - traefik.http.routers.xuvidaa-tv.tls=true
+      - traefik.http.routers.xuvidaa-tv.tls.certresolver=letsencrypt
+      - traefik.http.services.xuvidaa-tv.loadbalancer.server.port=3000
     environment:
       NODE_ENV: production
       BIND_HOST: 0.0.0.0
       PORT: 3000
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in Dokploy}
+      MEDIA_TOKEN_SECRET: ${MEDIA_TOKEN_SECRET:?Set MEDIA_TOKEN_SECRET in Dokploy}
+      XUPER_WEB_PASSWORD: ${XUPER_WEB_PASSWORD:?Set XUPER_WEB_PASSWORD in Dokploy}
+      XUPER_SESSION_SECRET: ${XUPER_SESSION_SECRET:?Set XUPER_SESSION_SECRET in Dokploy}
+      MEDIA_ALLOWED_HOSTS: ${MEDIA_ALLOWED_HOSTS:-}
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -28,3 +40,7 @@ services:
       options:
         max-size: 10m
         max-file: '2'
+networks:
+  xuvidaa-tv-private:
+    external: true
+    name: xuvidaa-tv-private

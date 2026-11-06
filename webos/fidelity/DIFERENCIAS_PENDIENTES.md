@@ -83,7 +83,7 @@ Estados:
 
 | ID | Bloqueo | Detalle | Qué haría falta |
 | --- | --- | --- | --- |
-| D1 | Catálogo real de XuperTV | **Resuelto:** protocolo Magis (`portalCore`, 3DES) implementado en el servicio; snapshot de 610 ítems y refresco en vivo de las 6 raíces | Mantener el snapshot actualizado si cambia el portal |
+| D1 | Catálogo real de XuperTV | El protocolo Magis (`portalCore`, 3DES) carga las seis raíces desde el servicio. El cliente HTML no debe usar un snapshot empaquetado. | El portal debe aceptar la sesión desde el servidor configurado. |
 | D2 | Extracción de sesión/tokens | Prohibido por las reglas del proyecto | No se hará |
 | D3 | Interceptación TLS | Prohibida | No se hará |
 | D4 | Instalación en el LG 43LM6300PDB | **Resuelto:** `ares-install` falla en el paso `ls` posterior a la subida, pero el servicio Luna `com.webos.appInstallService/dev/install` instala correctamente | Usar `tools/tv_deploy.mjs` (subida SFTP + instalación Luna) |

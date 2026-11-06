@@ -1,100 +1,75 @@
-# Xuper en un VPS Linux con otra aplicación instalada
+# XuperTV en Hostinger con Dokploy
 
-Este despliegue ejecuta los mismos HTML, CSS, imágenes y handlers del proyecto en un proceso Node persistente. No incluye el servicio Luna de LG ni FFmpeg: Modo Fluido sigue sin estar disponible en este runtime.
+Este despliegue aloja la interfaz y su API en el VPS. La aplicacion corre en
+un servicio Docker Compose propio conectado solo a la red privada
+`xuvidaa-tv-private`, que debe existir previamente en Dokploy. Traefik recibe
+el trafico HTTPS de `tv.rfcsas.com` por esa red y lo dirige al puerto interno
+3000 de XuperTV. El Compose no conecta XuperTV a `dokploy-network` ni publica
+puertos del VPS.
 
-Necesitas un VPS Linux con Docker Compose ya instalado y un subdominio HTTPS administrado por el proxy o panel que ya usas. La imagen usa Node.js 22 y solo módulos incluidos en Node; no ejecuta `npm install`.
+## Crear el servicio en Dokploy
 
-## 1. Probar el portal antes de publicar
+1. Crea un proyecto y un servicio **Docker Compose** nuevos, llamado
+   `xuvidaa-tv`, conectado al repositorio `mejai84/xuvidaa`.
+2. Selecciona la rama de despliegue `hostinger-vps` y la ruta Compose
+   `deploy/hostinger/compose.yaml`.
+3. Usa el modo Docker Compose, no Docker Stack: la imagen se construye desde el
+   Dockerfile del repositorio.
+4. Confirma que existe la red overlay attachable `xuvidaa-tv-private`; el
+   despliegue actual ya la usa. Conecta Traefik a esta red para que pueda
+   alcanzar `xuper`.
+5. No agregues `dokploy-network` al servicio. Las etiquetas Traefik del
+   Compose publican solo `tv.rfcsas.com` por HTTPS.
+6. Agrega las variables privadas indicadas abajo y despliega.
 
-Trabaja en una carpeta nueva dedicada a Xuper, fuera de los archivos de tu otra aplicación:
+La red dedicada mantiene XuperTV separado de Figueroa. No cambies la red,
+etiquetas ni configuracion global de los otros servicios. Traefik es el unico
+punto compartido y solo enruta la solicitud al contenedor XuperTV.
 
-```bash
-git clone https://github.com/mejai84/xuvidaa.git xuvidaa
-cd xuvidaa
-docker build -f deploy/hostinger/Dockerfile -t xuper-html .
-docker run --rm xuper-html node tools/check-portal.cjs
+## Variables privadas de Dokploy
+
+- `PUBLIC_BASE_URL`: `https://tv.rfcsas.com`
+- `MEDIA_TOKEN_SECRET`: secreto aleatorio de al menos 32 caracteres.
+- `XUPER_SESSION_SECRET`: otro secreto aleatorio independiente de al menos 32
+  caracteres.
+- `XUPER_WEB_PASSWORD`: clave de acceso de al menos 14 caracteres. Guárdala
+  como variable privada del proyecto; no la pongas en Git, en la URL ni en
+  archivos servidos al navegador.
+- `MEDIA_ALLOWED_HOSTS`: opcional; déjala vacía para permitir solo los hosts
+  HTTPS que el portal entrega y que quedan firmados por la API.
+
+Puedes generar los secretos en un equipo confiable con Node.js:
+
+```sh
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-La prueba no abre puertos ni monta carpetas del VPS. Si ya tienes Node.js 22 o posterior, también puedes ejecutar `node tools/check-portal.cjs` directamente desde la raíz del repositorio.
+Ejecuta el comando por separado para `MEDIA_TOKEN_SECRET` y
+`XUPER_SESSION_SECRET`. La contraseña de acceso no debe ser la misma que esos
+secretos.
 
-Un `404` obtenido con `curl` en la raíz del portal solo confirma que hubo respuesta HTTP. El diagnóstico usa el cliente real de sesión. Si devuelve `portal100024`, el proveedor rechaza la región o IP de ese VPS: desplegar el contenedor no elimina ese rechazo. No continúes suponiendo que habrá reproducción. Se necesita una ruta de acceso aceptada por el proveedor.
+## Verificación
 
-Opcionalmente, después de aceptar la sesión, la prueba puede resolver un título real del catálogo y comprobar una pequeña descarga:
+Después de desplegar, comprueba en el navegador:
 
-```bash
-docker run --rm xuper-html node tools/check-portal.cjs --content-id 7371B4BC01274ABA99C6F6957FCDF836 --media
-```
+- `https://tv.rfcsas.com/healthz` responde `{"ready":true}`.
+- La página muestra el formulario de acceso; la contraseña se envía por HTTPS
+  en el cuerpo de una solicitud POST, nunca en la barra de direcciones.
+- Tras ingresar, el catálogo solicita datos reales al portal desde el VPS.
+- La reproducción pasa por el relay del VPS. La compatibilidad de video depende
+  del formato autorizado que entregue el portal y del navegador del TV.
 
-Ese identificador corresponde a *Hot Chocolate Holiday* en la ficha existente. El diagnóstico no añade películas ni datos de ejemplo a la app.
+La comprobación de salud solo confirma que el proceso HTTP está activo. Si la
+sesión del portal devuelve `portal100024`, el proveedor está rechazando la IP o
+la región del VPS; Dokploy, DNS y CORS no pueden corregir esa respuesta.
 
-## 2. Elegir puerto y configurar secretos
+Modo Fluido requiere el relay FFmpeg local de webOS y no forma parte de esta
+edición web. El contenedor no necesita una base de datos, volúmenes ni acceso a
+los contenedores de Figueroa.
 
-Comprueba primero si el puerto propuesto está ocupado:
+## Actualizar o detener XuperTV
 
-```bash
-ss -ltn 'sport = :3001'
-```
-
-Si aparece un proceso escuchando en ese puerto, elige otro puerto libre mayor que 1023 y cambia tanto `XUPER_PORT` como `proxy_pass` en el ejemplo de nginx. No detengas el proceso que ya lo ocupa. El puerto interno del contenedor permanece en 3000.
-
-```bash
-cp deploy/hostinger/.env.example deploy/hostinger/.env
-chmod 600 deploy/hostinger/.env
-docker run --rm node:22-bookworm-slim node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
-```
-
-Guarda el valor aleatorio como `MEDIA_TOKEN_SECRET` en el archivo `.env`, y establece `PUBLIC_BASE_URL` con el origen HTTPS de tu nuevo subdominio, por ejemplo `https://xuper.tudominio.com`. No añadas rutas, contraseñas ni parámetros a esa URL. El archivo `.env` está excluido de Git y del contexto de construcción de Docker.
-
-Hay dos formas de servir la interfaz:
-
-- **App completa desde el VPS:** deja `XUPER_BACKEND_TOKEN` vacío y abre el subdominio del VPS. Interfaz y API utilizan el mismo origen.
-- **Interfaz en Vercel y API en el VPS:** genera otro valor aleatorio independiente para `XUPER_BACKEND_TOKEN`, y configura el mismo valor en Vercel. En Vercel configura también `XUPER_BACKEND_URL` con el origen HTTPS del VPS. En el VPS, `XUPER_ALLOWED_ORIGINS` debe contener el origen exacto de la interfaz Vercel, como `https://xuvidaa.vercel.app`. Con el token configurado, las rutas JSON del VPS exigen Bearer; abrir la interfaz directamente desde el VPS no habilita ese token en el navegador.
-
-`XUPER_BACKEND_URL` pertenece solo a Vercel. El servidor del VPS se niega a iniciar si esa variable está configurada allí, para evitar un bucle de reenvío. `MEDIA_ALLOWED_HOSTS` puede quedar vacío: los hosts recibidos del portal están incluidos en los tokens firmados. No uses comodines.
-
-## 3. Iniciar el contenedor aislado
-
-Desde la raíz del repositorio:
-
-```bash
-docker compose --env-file deploy/hostinger/.env -f deploy/hostinger/compose.yaml up -d --build
-docker compose --env-file deploy/hostinger/.env -f deploy/hostinger/compose.yaml ps
-curl --fail http://127.0.0.1:3001/healthz
-```
-
-La respuesta de salud es `{"ready":true}`. Solo confirma que el proceso HTTP está en marcha; no crea sesiones ni confirma acceso al portal. Adapta el puerto si elegiste otro.
-
-El contenedor tiene usuario sin privilegios, sistema de archivos de solo lectura y límites de memoria, CPU y procesos. Compose crea una red dedicada y publica el puerto exclusivamente en `127.0.0.1`, sin compartir la red del host ni añadir volúmenes compartidos con tu otra app.
-
-## 4. Conectar el nuevo subdominio con HTTPS
-
-Apunta el DNS del nuevo subdominio a tu VPS y crea un sitio HTTPS independiente en el panel que ya usas. Conserva el proxy, los certificados y la configuración de los sitios existentes.
-
-`nginx.conf.example` contiene la ubicación que debe ir dentro del virtual host HTTPS del nuevo subdominio. Sustituye el puerto si corresponde. El panel puede usar nginx, Caddy o Traefik: en ese caso aplica la misma configuración de destino local, Host original, streaming sin buffering y tiempo de lectura, utilizando el panel instalado. No reemplaces la configuración global de nginx ni instales otro proxy sobre los puertos 80/443.
-
-El proxy debe sobrescribir `X-Forwarded-For` con la IP remota real. El runtime solo acepta ese dato cuando la conexión llega desde loopback; nunca confía en encabezados reenviados por una conexión remota. Dentro de la red bridge de Docker usa la IP del socket como identidad: el límite de la API se comparte entre los usuarios de ese contenedor. No registra URLs de video, tokens o cabeceras de acceso.
-
-Comprueba el subdominio con:
-
-```bash
-curl --fail https://xuper.tudominio.com/healthz
-```
-
-Después abre la interfaz y comprueba un título real. Una sesión aceptada no garantiza que el navegador soporte el códec de cada título ni confirma toda una reproducción larga.
-
-## Actualizar o detener solo Xuper
-
-Para actualizar, primero revisa que no haya cambios locales pendientes y después trae los cambios de tu rama:
-
-```bash
-git pull --ff-only
-docker compose --env-file deploy/hostinger/.env -f deploy/hostinger/compose.yaml up -d --build
-```
-
-Para detener únicamente este despliegue, ejecuta desde esta carpeta:
-
-```bash
-docker compose --env-file deploy/hostinger/.env -f deploy/hostinger/compose.yaml stop
-```
-
-No es necesario reiniciar el VPS ni detener otros contenedores.
+Los despliegues se gestionan desde el servicio `xuvidaa-tv` en Dokploy. Para
+actualizar, publica los cambios en la rama `hostinger-vps` y usa Redeploy. Para
+detener XuperTV, detén solo ese servicio en Dokploy; no hace falta reiniciar el
+VPS ni tocar los otros proyectos.

@@ -1,0 +1,46 @@
+.access-gate {
+  position: fixed;
+  z-index: 100000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #fff;
+  background: #050505;
+  font-family: Arial, sans-serif;
+}
+
+.access-card {
+  box-sizing: border-box;
+  width: min(460px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: clamp(24px, 5vw, 40px);
+  border: 1px solid #454545;
+  border-radius: 10px;
+  background: #151515;
+}
+
+.access-card h1 { margin: 0; font-size: clamp(28px, 5vw, 38px); }
+.access-card p, .access-card label { margin: 0; color: #c9c9c9; font-size: 17px; }
+.access-card input, .access-card button {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid #777;
+  border-radius: 5px;
+  padding: 0 15px;
+  font: inherit;
+  font-size: 18px;
+}
+.access-card input { color: #fff; background: #080808; }
+.access-card button { color: #fff; background: #d21525; font-weight: 700; cursor: pointer; }
+.access-card input:focus, .access-card button:focus { outline: 3px solid #fff; outline-offset: 3px; }
+.access-card button:disabled { opacity: .65; }
+.access-message { min-height: 1.4em; color: #ffb8c6; font-size: 16px; }
+.access-gate[hidden], #app[hidden] { display: none !important; }
+
+@media (max-width: 600px) {
+  .access-gate { padding: 16px; }
+  .access-card { border-radius: 7px; }
+}

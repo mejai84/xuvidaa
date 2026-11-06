@@ -28,19 +28,9 @@ module.exports = function handler(req, res) {
   if (origin) {
     let parsed;
     try { parsed = new URL(origin); } catch (_) { return reply(res, 403, 'Origen no permitido'); }
-    const allowed = (process.env.XUPER_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
-    if (parsed.protocol !== 'https:' || parsed.origin !== origin || (parsed.host !== req.headers.host && !allowed.includes(origin))) {
+    if (parsed.protocol !== 'https:' || parsed.origin !== origin || parsed.host !== req.headers.host) {
       return reply(res, 403, 'Origen no permitido');
     }
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-    res.setHeader('Vary', 'Origin');
-  }
-  if (req.method === 'OPTIONS') {
-    if (!origin) return reply(res, 403, 'Origen no permitido');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Range, If-Range');
-    return res.status(204).send('');
   }
   if (!secret) return reply(res, 503, 'Media relay no configurado');
   if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Método no permitido');

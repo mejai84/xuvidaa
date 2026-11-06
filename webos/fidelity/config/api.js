@@ -1,15 +1,12 @@
 /*
  * VOD catalog configuration for the webOS port.
  *
- * PORTAL MODE (default, real XuperTV catalog)
+ * PORTAL MODE (real XuperTV catalog from the server API)
  * -------------------------------------------
  *   mode: 'portal'
- *   - data/portal.js is the catalog snapshot generated from the Magis portal
- *     with an anonymous device session. It paints the real catalog instantly.
- *   - The bundled service (services/com.webosflux.xuptertv.fidelity.service)
- *     refreshes the same roots at runtime and answers search / detail /
- *     resolve. The portal sends no CORS headers, so the encrypted protocol
- *     has to run in the Node service, never in the page.
+ *   - The API loads current catalog roots and answers search / detail / resolve.
+ *     The portal sends no CORS headers, so its encrypted protocol must run in
+ *     the server service, never in the browser.
  *
  * STATIC MODE (offline)
  * ---------------------
@@ -37,10 +34,7 @@ window.XUPERTV_API = {
   /* Bundle id of the packaged Node service. */
   serviceId: 'com.webosflux.xuptertv.fidelity.service',
 
-  /* Browser build uses the genuine snapshot; configure service calls separately. */
-  refresh: false,
-
-  /* Browser transport. Same-origin Vercel Function in HTML mode. */
+  /* Browser transport. Same-origin server API in HTML mode. */
   devServiceUrl: '/api',
 
   /* static / catalog modes */

@@ -196,7 +196,7 @@
       landscape: apiImage(raw.landscapeUrl || raw.landscape_url || raw.landscape || raw.wideImage || raw.bannerImage),
       backdrop: apiImage(raw.backdropUrl || raw.backdrop_url || raw.backdrop || raw.backdrop_path),
       streamUrl: raw.streamUrl || raw.stream_url || '',
-      /* Magis portal records (service / snapshot). */
+      /* Magis portal records returned by the server API or Luna service. */
       type: type || (isSeries ? 'teleplay' : 'movie'),
       row: apiText(raw.row, ''),
       alias: apiText(raw.alias, ''),
@@ -543,11 +543,6 @@ function portalServiceCall(method, params, done, customTimeout) {
     }, 15000);
   }
 
-  function portalSnapshot() {
-    var data = window.XUPERTV_PORTAL;
-    return data ? apiArray(data) : [];
-  }
-
   function applyPortalRefresh(roots) {
     var byId = {}, order = [], cats = {};
     function absorb(item) {
@@ -571,22 +566,20 @@ function portalServiceCall(method, params, done, customTimeout) {
       var list = roots[PORTAL_ROOTS[r]] || [];
       for (var i = 0; i < list.length; i++) { list[i].portal = true; absorb(list[i]); }
     }
-    if (!order.length) {
-      /* Refresh received no items: preserve the genuine portal snapshot. */
-      return;
-    }
+    if (!order.length) { return false; }
     var records = [];
     for (var o = 0; o < order.length; o++) {
       var rec = byId[order[o]];
       rec.category = Object.keys(cats[order[o]]).join(',');
       records.push(rec);
     }
-    if (records.length) { replaceVod(records, 'portal', true); }
+    return records.length ? replaceVod(records, 'portal', true) : false;
   }
 
   function refreshPortalCatalog() {
     if (portalState.refreshing) { return; }
     portalState.refreshing = true;
+    portalState.roots = 0;
     portalState.error = null;
     var fresh = {};
     var index = 0;
@@ -594,7 +587,10 @@ function portalServiceCall(method, params, done, customTimeout) {
       if (index >= PORTAL_ROOTS.length) {
         portalState.refreshing = false;
         portalState.lastSync = Date.now();
-        applyPortalRefresh(fresh);
+        vodApiState.loading = false;
+        if (!applyPortalRefresh(fresh)) {
+          vodApiState.error = portalState.error || 'El portal no devolvió títulos.';
+        }
         return;
       }
       var root = PORTAL_ROOTS[index++];
@@ -612,14 +608,8 @@ function portalServiceCall(method, params, done, customTimeout) {
   }
 
   function loadPortalCatalog() {
-    var snap = portalSnapshot();
-    if (snap.length) {
-      replaceVod(snap, 'portal-snapshot', true);
-    }
-    if (vodApi.refresh === false) {
-      if (!snap.length) { vodApiState.error = 'Sin snapshot del portal'; }
-      return;
-    }
+    vodApiState.loading = true;
+    vodApiState.error = null;
     refreshPortalCatalog();
   }
 
@@ -1857,7 +1847,7 @@ function portalServiceCall(method, params, done, customTimeout) {
   function addPosters(page, areaLeft, areaTop, list, items) {
     var area = el('div', 'poster-area');
     abs(area, areaLeft, areaTop, 1830, 940.5);
-    var source = (items && items.length) ? items : VOD;
+    var source = items || [];
     if (!source.length) { page.appendChild(area); return area; }
     for (var i = 0; i < list.length; i++) {
       var d = list[i];
@@ -2596,7 +2586,7 @@ function portalServiceCall(method, params, done, customTimeout) {
 
   function bentoPage(page, items, opts) {
     opts = opts || {};
-    var source = items.length ? items : VOD;
+    var source = items || [];
     if (!source.length) { return; }
     var i;
     for (i = 0; i < 2; i++) {
@@ -2734,7 +2724,7 @@ function portalServiceCall(method, params, done, customTimeout) {
      horizontal poster row (7 columns, last one clipped by the screen edge). */
   function buildKidsPage(page) {
     var source = vodFor('infantil', 12, 0);
-    if (!source.length) { source = VOD; }
+    if (!source.length) { return; }
     var real = !!(source[0] && source[0]._portal);
     page.appendChild(makeBento(source[0], 192, 38.5, 831, 534, { shade: true, title: real }));
     var cells = [

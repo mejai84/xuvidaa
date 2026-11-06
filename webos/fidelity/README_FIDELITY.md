@@ -30,10 +30,7 @@ webos/fidelity/
 ├── css/style.css
 ├── js/app.js
 ├── config/api.js              modo portal / estático / backend autorizado
-├── data/portal.js             snapshot del catálogo real (pinta al instante)
-├── data/catalog.js            muestra local de 6 películas abiertas
 ├── assets/original/           141 recursos de la APK por categoría
-├── assets/catalog/            pósteres de la muestra
 └── *.md                       documentación del port
 ```
 
@@ -62,8 +59,9 @@ contiene este código. Ver `AUDITORIA_IPK.md`.
 - **Series**: navegador de episodios tipo Netflix dentro del reproductor
   (temporadas a la izquierda, episodios a la derecha, `T10 E1 · Elegir`);
   elegir el episodio 6 reproduce el 6 y el detalle se sincroniza al volver.
-- **Catálogo**: `data/portal.js` + refresco en vivo del servicio; búsqueda,
-  detalle y `resolve` siempre contra el portal.
+- **Catálogo**: se carga desde el portal mediante la API/servicio en cada inicio;
+  la página no usa catálogos empaquetados como respaldo. Búsqueda, detalle y
+  `resolve` consultan el portal.
 
 ## Panel del reproductor y "Ajuste de reproducir"
 
@@ -169,9 +167,8 @@ subida; el servicio Luna sí instala):
 node tools\tv_deploy.mjs dist\com.webosflux.xuptertv.fidelity_1.5.9_all.ipk
 ```
 
-Contiene la app completa (`config/`, `data/`, `assets/original/` y
-`assets/catalog/`) más el servicio Node. Excluye capturas, documentación y el
-IPK antiguo.
+Contiene la app, sus recursos originales y el servicio Node. Excluye capturas,
+documentación y el IPK antiguo. No empaqueta catálogos ni pósteres de muestra.
 
 No es una release final: sigue pendiente `MFInfoBar`, la marquesina, la
 contraseña parental, los paneles Account/Purchase y la comparación con

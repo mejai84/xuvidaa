@@ -234,7 +234,6 @@ sin descargas en el televisor.
 │  com.webosflux.xuptertv.fidelity            (web app · Chromium 53)            │
 │  ├─ index.html + css/style.css              pantallas y foco D-pad             │
 │  ├─ js/app.js                               navegación, panel, reproductor     │
-│  ├─ data/portal.js                          snapshot del catálogo (pinta ya)   │
 │  └─ config/api.js                           modo portal / estático / backend   │
 │                    │  Luna (webOS.service)                                     │
 │                    ▼                                                           │
@@ -257,8 +256,8 @@ Puntos clave:
 - El portal **no manda cabeceras CORS** y el cuerpo va cifrado
   (`hex(base64(3DES-EDE/ECB/PKCS7(JSON)))`), así que el protocolo vive en el
   servicio Node, nunca en la página.
-- La página pinta al instante con `data/portal.js` y luego refresca desde el
-  servicio; búsqueda, detalle y `resolve` siempre van en vivo.
+- La página solicita el catálogo actual al servicio; no incluye películas ni
+  imágenes de demostración. Búsqueda, detalle y `resolve` van en vivo.
 - `resolve` devuelve `{base}/vod/{mediaId}_media.{ts|mp4}`. Los TS se sirven a
   través del proxy loopback como HLS; el «Modo fluido» añade el relay FFmpeg
   para que el decodificador del TV reciba fMP4 en lugar de MPEG-TS.
@@ -266,11 +265,11 @@ Puntos clave:
 
 ## Navegador y servidor persistente
 
-La versión HTML usa `webos/fidelity` y sus rutas `/api`. Para mantener la
-interfaz en Vercel y ejecutar el servicio en un VPS, o alojar ambos en el VPS,
-consulta la [guía de Hostinger](deploy/hostinger/README.md). El despliegue usa
-un contenedor y puerto local propios, conservando los recursos visuales de
-la app. Primero comprueba el acceso real al portal con
+La versión HTML usa `webos/fidelity` y sus rutas `/api`. La interfaz y la API
+se alojan juntas en un servicio aislado de Dokploy en el VPS; no se usa Vercel.
+Consulta la [guía de Hostinger](deploy/hostinger/README.md). El despliegue
+conserva los recursos visuales de la app y no comparte red, volúmenes ni bases
+de datos con otros proyectos. Primero comprueba el acceso real al portal con
 `node tools/check-portal.cjs`: una respuesta HTTP en la raíz del dominio no
 confirma que el proveedor acepte la sesión. El runtime HTTP no incluye
 FFmpeg ni el servicio Luna de LG.

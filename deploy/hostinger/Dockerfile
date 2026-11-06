@@ -9,7 +9,6 @@ COPY --chown=node:node webos/fidelity/js ./webos/fidelity/js
 COPY --chown=node:node webos/fidelity/css ./webos/fidelity/css
 COPY --chown=node:node webos/fidelity/index.html ./webos/fidelity/index.html
 COPY --chown=node:node webos/fidelity/config/api.js ./webos/fidelity/config/api.js
-COPY --chown=node:node webos/fidelity/data/portal.js ./webos/fidelity/data/portal.js
 COPY --chown=node:node tools/check-portal.cjs ./tools/check-portal.cjs
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz').then(r=>{if(!r.ok)process.exitCode=1}).catch(()=>{process.exitCode=1})"
