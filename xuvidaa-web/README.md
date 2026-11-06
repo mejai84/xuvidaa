@@ -46,6 +46,8 @@ not query strings, for catalog and playback identifiers.
 - `POST /api/resolve` (`contentId`, optional `seriesContentId`, `trackIndex`)
 - `POST /api/live/categories`, `/api/live/channels` (`columnId`, `pageNum`,
   `pageSize`), `/api/live/resolve` (`channelCode`)
+- `POST /api/ping`, `/api/netdiag` (the web diagnostic reports the server
+  session only; it cannot inspect the television's DNS or codecs)
 - `GET` or `HEAD /api/media/:token/*` forwards streaming requests to the
   loopback proxy. `GET`/`HEAD /api/hls/:token/:reference` serves HLS child
   playlists, keys and segments previously registered from a returned manifest;
@@ -61,6 +63,12 @@ records in process memory and returns only same-origin opaque media paths. The
 source's GitHub seed fallback is blocked; if the actual portal cannot establish
 a session, the API returns an error instead of adopting a third-party session.
 The frontend contains no example catalog or test accounts.
+
+The exact Luna-to-HTTP method mapping and methods that remain unavailable are
+documented in [API_CONTRACT_IPK_2.2.32.md](API_CONTRACT_IPK_2.2.32.md). M3U
+imports and external `streamUrl` values remain disabled until a safe host
+allowlist is configured; `resolveSmooth` remains specific to the on-TV FFmpeg
+relay.
 
 The image build applies three guarded Node lifecycle adaptations to its own
 copy of `proxy.js`: a completed incoming request no longer aborts the response,
@@ -96,8 +104,9 @@ Run from the repository root with Node 24 or later:
 ```sh
 node --check xuvidaa-web/server/index.js
 node --check xuvidaa-web/server/prepare-upstream.js
-node --check xuvidaa-web/public/app.js
-node --test xuvidaa-web/test/server.test.js
+node --check xuvidaa-web/public/js/access.js
+node --check xuvidaa-web/public/js/app.js
+node --test --experimental-test-isolation=none xuvidaa-web/test/server.test.js
 docker compose -f xuvidaa-web/compose.yaml config --quiet
 ```
 

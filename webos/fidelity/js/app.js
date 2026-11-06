@@ -47,44 +47,8 @@
   }
   function each(list, fn) { for (var i = 0; i < list.length; i++) { fn(list[i], i); } }
 
-  /* ------------------------------------------------------------- demo data */
-  /* Server-driven in the real APK. These records only exercise the layouts. */
-  var GENRES = ['Acción', 'Drama', 'Comedia', 'Suspenso', 'Aventura',
-                'Animación', 'Familiar', 'Ciencia ficción'];
-
+  /* Browser edition loads real portal records only. */
   var VOD = [];
-  var CATEGORY_BY_PREFIX = {
-    'Destacado': 'destacado', 'Película': 'pelicula', 'Serie': 'serie',
-    'Gratis': 'gratis', 'Infantil': 'infantil', 'UHD': 'uhd', 'Extra': 'extra'
-  };
-  function addVod(prefix, count, base) {
-    for (var i = 1; i <= count; i++) {
-      var g1 = GENRES[(base + i) % GENRES.length];
-      var g2 = GENRES[(base + i + 3) % GENRES.length];
-      VOD.push({
-        id: VOD.length + 1,
-        title: prefix + ' demo ' + pad2(i),
-        category: CATEGORY_BY_PREFIX[prefix] || '',
-        score: (7.9 + ((base + i) % 16) / 10).toFixed(1),
-        year: 2018 + ((base + i) % 7),
-        duration: (1 + ((base + i) % 2)) + ' h ' + (10 + ((base * 7 + i * 5) % 45)) + ' min',
-        genres: g1 === g2 ? [g1] : [g1, g2],
-        director: 'Director demo ' + pad2(i),
-        actors: 'Actor demo ' + pad2(i) + ', Actriz demo ' + pad2(i + 1),
-        synopsis: 'Sinopsis de demostración para ' + prefix.toLowerCase() + ' demo ' + pad2(i) +
-          '. Este texto sólo existe para comprobar el recorte a dos líneas, el interlineado y ' +
-          'la sangría de la etiqueta "Sinopsis :" definidos en activity_voddetails.',
-        kind: prefix.toLowerCase()
-      });
-    }
-  }
-  addVod('Destacado', 5, 1);
-  addVod('Película', 7, 2);
-  addVod('Serie', 7, 3);
-  addVod('Gratis', 5, 4);
-  addVod('Infantil', 8, 5);
-  addVod('UHD', 4, 6);
-  addVod('Extra', 4, 7);
 
   /* ------------------------------------------------------------- VOD API
      XMLHttpRequest is used deliberately: it works on Chromium 53, where
@@ -93,7 +57,7 @@
   /* Desktop harness override: ?service=http://127.0.0.1:8910 */
   var devServiceParam = /[?&]service=([^&]+)/.exec(window.location.search || '');
   if (devServiceParam) { vodApi.devServiceUrl = decodeURIComponent(devServiceParam[1]); }
-  var vodApiState = { loading: false, source: 'demo', error: null };
+  var vodApiState = { loading: false, source: 'portal', error: null };
   var portalState = { refreshing: false, lastSync: 0, roots: 0, error: null };
   var PORTAL_ROOTS = ['featured', 'movies', 'series', 'anime', 'kids', 'free'];
 
@@ -116,6 +80,9 @@
 
   function apiError(payload) {
     if (!payload || typeof payload !== 'object') { return ''; }
+    if (payload.error === 'PORTAL_REGION_BLOCKED') return 'El portal bloqueó la conexión desde esta región.';
+    if (payload.error === 'PORTAL_SESSION_UNAVAILABLE') return 'El portal no pudo iniciar sesión desde el servidor.';
+    if (payload.error === 'PORTAL_SESSION_TIMEOUT' || payload.error === 'PORTAL_REQUEST_TIMEOUT') return 'El portal tardó demasiado en responder.';
     var code = payload.returnCode || payload.code || payload.errorCode || '';
     var message = payload.errorMessage || payload.message || payload.msg || '';
     if (!code && !message) { return ''; }
@@ -260,7 +227,7 @@
       finished = true;
       done(error, payload);
     }
-    xhr.open(options.method || 'GET', url, true);
+    xhr.open(options.method || 'GET', options.url || url, true);
     xhr.timeout = timeout;
     var headers = vodApi.headers || {};
     for (var name in headers) {
@@ -335,7 +302,6 @@
   }
 
   function replaceVod(records, source, portal) {
-    if (!records.length) { return false; }
     var previous = {};
     for (var p = 0; p < VOD.length; p++) { previous[String(VOD[p].id)] = VOD[p]; }
     VOD.splice(0, VOD.length);
@@ -374,33 +340,13 @@
     return true;
   }
 
-  /* A real catalog may not have every home section. Prefer the declared
-     category, then fall back to positional demo slices so the reconstructed
-     layouts always have content to show. */
+  /* A missing portal category stays empty; never borrow unrelated titles. */
   function vodFor(category, count, fallbackStart) {
     var out = [], i;
     if (category) {
       for (i = 0; i < VOD.length; i++) {
         var cats = norm(VOD[i].category || '').split(',');
         if (cats.indexOf(category) !== -1) { out.push(VOD[i]); }
-      }
-    }
-    if (!out.length) { out = VOD.slice(fallbackStart, fallbackStart + count); }
-    if (!out.length) { out = VOD.slice(0, count); }
-    /* Fill short sections with other catalog entries so the sample never shows
-       one poster repeated across a whole mosaic. A real backend normally sends
-       enough items per section; this only affects the bundled demo catalog. */
-    if (out.length < count && VOD.length) {
-      var seen = {};
-      for (i = 0; i < out.length; i++) { seen[String(out[i].id)] = true; }
-      var cursor = 0;
-      while (out.length < count && cursor < VOD.length * 2) {
-        var cand = VOD[cursor % VOD.length];
-        cursor++;
-        if (!seen[String(cand.id)]) {
-          out.push(cand);
-          seen[String(cand.id)] = true;
-        }
       }
     }
     return out;
@@ -517,6 +463,37 @@ function rememberCdnProbe(kind, payload) {
 }
 
 function portalServiceCall(method, params, done, customTimeout) {
+  var browserRoutes = {
+    home: '/api/home', search: '/api/search', detail: '/api/detail',
+    mediaInfo: '/api/media-info', resolve: '/api/resolve',
+    resolveLive: '/api/live/resolve', liveCategories: '/api/live/categories',
+    liveChannels: '/api/live/channels'
+  };
+  var route = browserRoutes[method];
+  if (route && !window.PalmServiceBridge) {
+    var body = {};
+    var key;
+    for (key in (params || {})) {
+      if (Object.prototype.hasOwnProperty.call(params, key)) { body[key] = params[key]; }
+    }
+    if (method === 'resolve' && body.seriesContentId && !body.contentId) body.contentId = body.seriesContentId;
+    apiRequest(route, function (error, payload) {
+      if (error) { return done(error, null); }
+      if (method === 'liveChannels' && payload && !payload.channels) {
+        payload = { channels: [], hasMore: false };
+      }
+      if ((method === 'resolve' || method === 'resolveLive') && payload && payload.playbackUrl) {
+        payload.url = payload.playbackUrl;
+        payload.proxyPath = payload.playbackUrl;
+      }
+      if (method === 'mediaInfo' && payload) payload.returnValue = true;
+      if (method === 'search' && payload && payload.items) {
+        for (var i = 0; i < payload.items.length; i++) payload.items[i].portal = true;
+      }
+      done(null, payload);
+    }, { method: 'POST', body: body, url: route });
+    return true;
+  }
   var serviceId = vodApi.serviceId || 'com.webosflux.xuptertv.fidelity.service';
   var settled = false;
   var timeoutMs = customTimeout || parseInt(vodApi.timeoutMs, 10) || 20000;
@@ -554,7 +531,7 @@ function portalServiceCall(method, params, done, customTimeout) {
   }
   /* Desktop harness: reach the same methods over plain HTTP when the Luna
      bridge is missing or rejected the request (webOSTV.js on a browser). */
-  if (vodApi.devServiceUrl) {
+  if (vodApi.devServiceUrl && method !== 'prewarm') {
     apiRequest(String(vodApi.devServiceUrl).replace(/\/$/, '') + '/' + method + '?' + queryString(params || {}),
       function (error, payload) { finish(error, payload); }, null);
     return true;
@@ -588,30 +565,6 @@ function portalServiceCall(method, params, done, customTimeout) {
     }, 15000);
   }
 
-  function portalSnapshot() {
-    var data = window.XUPERTV_PORTAL;
-    return data ? apiArray(data) : [];
-  }
-
-  /* Open movies are kept only to exercise the detail -> player pipeline; they
-     are not portal titles, so they never go through the resolver. */
-  function openSamples() {
-    var all = bundledCatalog();
-    var out = [];
-    for (var i = 0; i < all.length; i++) {
-      if (all[i] && all[i].streamUrl) {
-        var rec = {};
-        for (var k in all[i]) {
-          if (Object.prototype.hasOwnProperty.call(all[i], k)) { rec[k] = all[i][k]; }
-        }
-        rec.category = 'demo';
-        rec.portal = false;
-        out.push(rec);
-      }
-    }
-    return out;
-  }
-
   function applyPortalRefresh(roots) {
     var byId = {}, order = [], cats = {};
     function absorb(item) {
@@ -636,7 +589,7 @@ function portalServiceCall(method, params, done, customTimeout) {
       for (var i = 0; i < list.length; i++) { list[i].portal = true; absorb(list[i]); }
     }
     if (!order.length) {
-      /* Refresh received no items (service offline or slow): preserve snapshot catalog! */
+      replaceVod([], 'portal', true);
       return;
     }
     var records = [];
@@ -645,8 +598,6 @@ function portalServiceCall(method, params, done, customTimeout) {
       rec.category = Object.keys(cats[order[o]]).join(',');
       records.push(rec);
     }
-    var demo = openSamples();
-    for (var d = 0; d < demo.length; d++) { records.push(demo[d]); }
     if (records.length) { replaceVod(records, 'portal', true); }
   }
 
@@ -661,11 +612,15 @@ function portalServiceCall(method, params, done, customTimeout) {
         portalState.refreshing = false;
         portalState.lastSync = Date.now();
         applyPortalRefresh(fresh);
+        if (!portalState.roots && !VOD.length) {
+          vodApiState.error = portalState.error || 'El portal no entregó programas.';
+          renderPortalUnavailable();
+        }
         return;
       }
       var root = PORTAL_ROOTS[index++];
       portalServiceCall('home', { root: root }, function (error, payload) {
-        if (!error && payload && payload.returnValue !== false && payload.items && payload.items.length) {
+        if (!error && payload && payload.items && payload.items.length) {
           fresh[root] = payload.items;
           portalState.roots++;
         } else if (error) {
@@ -677,15 +632,18 @@ function portalServiceCall(method, params, done, customTimeout) {
     next();
   }
 
+  function renderPortalUnavailable() {
+    var message = portalState.error || 'El portal no entregó programas.';
+    var host = $('live-list');
+    if (host) { clear(host); host.appendChild(el('div', 'live-list-status', message)); }
+    for (var p = 1; p < pages.length; p++) {
+      if (!pages[p]) { continue; }
+      clear(pages[p]);
+      pages[p].appendChild(el('div', 'catalog-empty', message));
+    }
+  }
+
   function loadPortalCatalog() {
-    var snap = portalSnapshot();
-    if (snap.length) {
-      replaceVod(snap, 'portal-snapshot', true);
-    }
-    if (vodApi.refresh === false) {
-      if (!snap.length) { vodApiState.error = 'Sin snapshot del portal'; }
-      return;
-    }
     refreshPortalCatalog();
   }
 
@@ -759,9 +717,10 @@ function portalServiceCall(method, params, done, customTimeout) {
       item._detailWait = [done];
       portalServiceCall('detail', { contentId: item.id }, function (error, payload) {
         item._detailLoading = false;
-        if (!error && payload && payload.returnValue !== false && payload.item) {
-          mergeDetail(item, payload.item);
-          item.episodes = payload.episodes || [];
+        var detailPayload = payload && payload.item ? payload.item : payload;
+        if (!error && detailPayload && detailPayload.id) {
+          mergeDetail(item, detailPayload);
+          item.episodes = (payload && payload.episodes) || detailPayload.episodes || [];
           item.seasons = item._catalogSeasons || payload.seasons || [];
           /* The portal keys episodes by the season container, so remember
              which container this list came from (item.id stays the series). */
@@ -1997,33 +1956,8 @@ function portalServiceCall(method, params, done, customTimeout) {
     page.appendChild(liveFocus);
   }
 
-  /* --- Live TV Categories & Addons (M3U / IPTV) --- */
-  var PRESET_ADDONS = [
-    {
-      id: 'es_tdt',
-      name: 'España - Canales Nacionales y TDT',
-      url: 'https://iptv-org.github.io/iptv/countries/es.m3u',
-      desc: '320+ canales: La 1, La 2, Antena 3, Telecinco, laSexta, autonómicas'
-    },
-    {
-      id: 'latam_spa',
-      name: 'Latinoamérica y Deportes (Hispano)',
-      url: 'https://iptv-org.github.io/iptv/languages/spa.m3u',
-      desc: 'Canales en español de Colombia, México, Argentina, Chile y Perú'
-    },
-    {
-      id: 'sports_iptv',
-      name: 'Deportes Internacionales',
-      url: 'https://iptv-org.github.io/iptv/categories/sports.m3u',
-      desc: 'Transmisiones deportivas y canales de competiciones'
-    },
-    {
-      id: 'movies_iptv',
-      name: 'Cine y Series 24/7',
-      url: 'https://iptv-org.github.io/iptv/categories/movies.m3u',
-      desc: 'Cine clásico, cine de acción y canales continuos de series'
-    }
-  ];
+  /* No external sample playlists are bundled in the browser edition. */
+  var PRESET_ADDONS = [];
 
   function getSavedAddons() {
     try {
@@ -2619,7 +2553,7 @@ function portalServiceCall(method, params, done, customTimeout) {
         }
       }
     }
-    return out.length ? out : VOD;
+    return out;
   }
 
   function appendCatalogGrid(page, items, startY, titleText) {
@@ -2757,21 +2691,15 @@ function portalServiceCall(method, params, done, customTimeout) {
   /* EXPLORAR: hero 1249x703 + three stacked 413x226 tiles on the right,
      provider row label and logo strip underneath. */
   function buildExplorePage(page) {
-    var source = VOD.length ? VOD : [];
-    page.appendChild(makeBento(source[0], 192, 38.5, 1249, 703, { shade: true }));
-    for (var i = 0; i < 3; i++) {
-      page.appendChild(makeBento(source[(i + 1) % source.length], 1446, 38.5 + i * 231,
-                                 413, 226, { badge: i === 2 ? 'Adult' : '' }));
+    var source = VOD.slice(0, 4);
+    if (!source.length) {
+      page.appendChild(el('div', 'catalog-empty', 'No se encontraron programas en el cat?logo actual.'));
+      return;
     }
-    page.appendChild(el('div', 'explore-row-title', 'Netflix'));
-    var strip = el('div', 'explore-strip');
-    abs(strip, 192, 811.5, 1920, 130);
-    for (var k = 0; k < 8; k++) {
-      var cell = el('div', 'explore-logo');
-      abs(cell, k * 272, 0, 260, 120);
-      strip.appendChild(cell);
+    page.appendChild(makeBento(source[0], 192, 38.5, 1249, 703, { shade: true, title: true }));
+    for (var i = 0; i < Math.min(3, source.length - 1); i++) {
+      page.appendChild(makeBento(source[i + 1], 1446, 38.5 + i * 231, 413, 226, {}));
     }
-    page.appendChild(strip);
   }
 
   /* ============================================================ VOD DETAIL */
@@ -3050,9 +2978,10 @@ function portalServiceCall(method, params, done, customTimeout) {
             if (targetSeason && targetSeason.id) {
               setPlayerStatus('Cargando temporada…');
               portalServiceCall('detail', { contentId: targetSeason.id }, function (err, payload) {
-                if (!err && payload && payload.returnValue !== false) {
-                  if (payload.item) { mergeDetail(item, payload.item); }
-                  item.episodes = payload.episodes || [];
+                var seasonDetail = payload && payload.item ? payload.item : payload;
+                if (!err && seasonDetail) {
+                  if (seasonDetail.id) { mergeDetail(item, seasonDetail); }
+                  item.episodes = (payload && payload.episodes) || seasonDetail.episodes || [];
                   item.seasonId = targetSeason.id;
                   targetSeason._episodes = item.episodes;
                   state.detailEpisode = item.episodes[0] || null;
@@ -3279,8 +3208,6 @@ function portalServiceCall(method, params, done, customTimeout) {
   function popularSearchItems() {
     var featured = allVodFor('destacado');
     var out = featured && featured.length ? featured.slice(0, 10) : [];
-    if (!out.length) { out = hotSearches(); }
-    if (!out.length) { out = VOD.slice(0, 10); }
     return out;
   }
 
@@ -3349,15 +3276,14 @@ function portalServiceCall(method, params, done, customTimeout) {
       state.searchTimer = setTimeout(function () {
         portalServiceCall('search', { value: rawQ.trim() }, function (error, payload) {
           if (seq !== state.searchSeq) { return; }
-          if (error || !payload || payload.returnValue === false || !payload.items || !payload.items.length) {
-            /* Keep existing local matches, never clear on empty remote response */
+          if (error || !payload || !payload.items || !payload.items.length) {
             return;
           }
-          var merged = localMatches.slice();
+          var merged = [];
           var seen = {};
-          for (var m = 0; m < merged.length; m++) { seen[String(merged[m].id)] = true; }
           for (var p = 0; p < payload.items.length; p++) {
             var item = normalizeVod(payload.items[p], merged.length + 1);
+            item._portal = true;
             if (!seen[String(item.id)]) {
               seen[String(item.id)] = true;
               merged.push(item);
@@ -6811,7 +6737,7 @@ function portalServiceCall(method, params, done, customTimeout) {
       portalServiceCall(resolveMethod, params, function (error, payload) {
         /* Stale response: user already navigated to something else */
         if (mySeq !== resolveSeq) { return; }
-        if (error || !payload || payload.returnValue === false) {
+        if (error || !payload) {
           state.streamError = 'No se pudo resolver el título' + (error ? ': ' + error : '');
           setPlayerStatus(state.streamError);
           return done('');
@@ -7299,7 +7225,6 @@ function portalServiceCall(method, params, done, customTimeout) {
     });
     buildSearch();
     startServiceKeepAlive();
-    portalServiceCall('prewarm', {}, function () {});
     startWelcome();
     loadVodCatalog();
     loadLiveChannels();

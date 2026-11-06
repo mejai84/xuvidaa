@@ -42,7 +42,8 @@ const safeFields = new Set([
   'year', 'genres', 'director', 'actors', 'synopsis', 'type', 'alias', 'country',
   'releaseDate', 'tagline', 'volumeCount', 'updateCount', 'moreAudio',
   'moreSubtitle', 'row', 'index', 'uhd', 'fav', 'now', 'next', 'time', 'number',
-  'quality', 'description'
+  'quality', 'description', 'audio', 'tracks', 'availableTracks', 'selected',
+  'selectedTrack', 'codec', 'mime', 'isHls', 'returnValue', 'hasMore', 'name'
 ]);
 
 const accessPassword = process.env.XUVIDAA_WEB_PASSWORD;
@@ -158,7 +159,22 @@ function sendJson(res, status, value, headers) {
 }
 
 function sendError(res, status, code) {
-  sendJson(res, status, { error: code });
+  const messages = {
+    AUTH_REQUIRED: 'La sesión web venció. Ingresa de nuevo.',
+    LOGIN_FAILED: 'La clave no es correcta.',
+    PORTAL_REGION_BLOCKED: 'El portal rechazó la sesión del servidor por región o política de acceso.',
+    PORTAL_SESSION_TIMEOUT: 'El portal tardó demasiado en iniciar sesión.',
+    PORTAL_SESSION_UNAVAILABLE: 'No se pudo iniciar sesión en el portal desde el servidor.',
+    PORTAL_REQUEST_TIMEOUT: 'El portal tardó demasiado en responder.',
+    PORTAL_REQUEST_FAILED: 'El portal rechazó la solicitud.',
+    M3U_IMPORT_UNAVAILABLE: 'La importación de listas M3U no está habilitada en esta edición web.'
+  };
+  sendJson(res, status, {
+    returnValue: false,
+    error: code,
+    errorCode: code,
+    errorText: messages[code] || 'No se pudo completar la solicitud.'
+  });
 }
 
 function sanitizePortalData(value) {
@@ -324,16 +340,20 @@ function portalCall(res, method, args, transform) {
       settled = true;
       sendError(res, 504, 'PORTAL_REQUEST_TIMEOUT');
     }, 50_000);
-    fn(...args, (err, result) => {
+    fn(...args, (err, result, extra) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (err) {
-        sendError(res, 502, 'PORTAL_REQUEST_FAILED');
+        if (String(err.portalCode || '') === 'portal100024') sendError(res, 403, 'PORTAL_REGION_BLOCKED');
+        else sendError(res, 502, 'PORTAL_REQUEST_FAILED');
         return;
       }
-      Promise.resolve().then(() => transform ? transform(result) : sanitizePortalData(result))
-        .then((payload) => sendJson(res, 200, payload))
+      Promise.resolve().then(() => transform ? transform(result, extra) : sanitizePortalData(result))
+        .then((payload) => sendJson(res, 200, {
+          returnValue: true,
+          ...(payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : { data: payload })
+        }))
         .catch(() => sendError(res, 502, 'MEDIA_PROXY_FAILED'));
     });
   }).catch((err) => {
@@ -369,7 +389,18 @@ function safeSubtitle(subtitle) {
 function attachSafeSubtitles(value) {
   return ensureMediaProxy().then(() => {
     const subtitles = value && Array.isArray(value.subtitles) ? value.subtitles : [];
-    return { subtitles: subtitles.map(safeSubtitle).filter(Boolean) };
+    return {
+      audio: typeof value.audio === 'string' ? value.audio : '',
+      subtitles: subtitles.map(safeSubtitle).filter(Boolean),
+      tracks: Array.isArray(value.tracks) ? sanitizePortalData(value.tracks) : [],
+      availableTracks: Array.isArray(value.availableTracks) ? sanitizePortalData(value.availableTracks) : [],
+      selected: value.selected && typeof value.selected === 'object' ? sanitizePortalData(value.selected) : {},
+      selectedTrack: value.selectedTrack && typeof value.selectedTrack === 'object' ? sanitizePortalData(value.selectedTrack) : {},
+      duration: Number.isFinite(Number(value.duration)) ? Number(value.duration) : 0,
+      moreAudio: value.moreAudio || 0,
+      moreSubtitle: value.moreSubtitle || 0,
+      name: typeof value.name === 'string' ? value.name : ''
+    };
   });
 }
 
@@ -419,7 +450,12 @@ function registerStream(stream) {
         codec: typeof stream.codec === 'string' ? stream.codec : '',
         duration: Number.isFinite(Number(stream.duration)) ? Number(stream.duration) : null,
         isHls,
-        subtitles
+        subtitles,
+        audio: typeof stream.audio === 'string' ? stream.audio : '',
+        name: typeof stream.name === 'string' ? stream.name : '',
+        availableTracks: Array.isArray(stream.availableTracks) ? sanitizePortalData(stream.availableTracks) : [],
+        selectedTrack: stream.selectedTrack && typeof stream.selectedTrack === 'object'
+          ? sanitizePortalData(stream.selectedTrack) : {}
       });
     });
   }));
@@ -671,18 +707,52 @@ function handleApi(req, res, pathname) {
           trackIndex: intField(body.trackIndex, undefined, 0, 64)
         }], registerStream);
       case '/api/live/categories':
-        return portalCall(res, 'getLiveCategories', []);
+        return portalCall(res, 'getLiveCategories', [], (categories) => ({
+          categories: sanitizePortalData(categories || [])
+        }));
       case '/api/live/channels':
         return portalCall(res, 'getLiveChannels', [
           textField(body.columnId, 128) || null,
           intField(body.pageNum, 1, 1, 10000),
           intField(body.pageSize, 100, 1, 200)
-        ]);
+        ], (channels, hasMore) => ({
+          channels: sanitizePortalData(channels || []),
+          hasMore: Boolean(hasMore),
+          pageNum: intField(body.pageNum, 1, 1, 10000),
+          pageSize: intField(body.pageSize, 100, 1, 200)
+        }));
       case '/api/live/resolve': {
+        if (typeof body.streamUrl === 'string' && body.streamUrl) {
+          return sendError(res, 501, 'M3U_IMPORT_UNAVAILABLE');
+        }
         const channelCode = textField(body.channelCode, 128);
         if (!channelCode) return sendError(res, 400, 'CHANNEL_CODE_REQUIRED');
         return portalCall(res, 'resolveLive', [channelCode], registerStream);
       }
+      case '/api/live/m3u':
+        return sendError(res, 501, 'M3U_IMPORT_UNAVAILABLE');
+      case '/api/ping':
+        return sendJson(res, 200, { returnValue: true, alive: true, service: 'xuvidaa-web' });
+      case '/api/netdiag':
+        ensurePortalSession().then(() => {
+          sendJson(res, 200, {
+            returnValue: true,
+            verdict: 'parcial',
+            partial: true,
+            hosts: [],
+            providers: [],
+            layers: {
+              portal: { ok: true, source: 'servidor' },
+              session: { ok: true, ready: true }
+            },
+            note: 'La edición web comprueba la sesión desde el servidor; no mide DNS ni códecs del televisor.'
+          });
+        }).catch((err) => {
+          if (String(err.portalCode || '') === 'portal100024') sendError(res, 403, 'PORTAL_REGION_BLOCKED');
+          else if (err.code === 'PORTAL_SESSION_TIMEOUT') sendError(res, 504, 'PORTAL_SESSION_TIMEOUT');
+          else sendError(res, 502, 'PORTAL_SESSION_UNAVAILABLE');
+        });
+        return;
       default:
         return sendError(res, 404, 'NOT_FOUND');
     }

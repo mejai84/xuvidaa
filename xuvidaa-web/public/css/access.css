@@ -1,0 +1,42 @@
+.access-gate {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #050505;
+  color: #fff;
+  font-family: Arial, sans-serif;
+}
+
+.access-card {
+  width: min(440px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: clamp(24px, 5vw, 40px);
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  background: #151515;
+}
+
+.access-card h1 { font-size: clamp(26px, 5vw, 36px); }
+.access-card p, .access-card label { color: #c9c9c9; font-size: 16px; }
+.access-card input, .access-card button {
+  min-height: 52px;
+  border: 1px solid #666;
+  border-radius: 6px;
+  padding: 0 14px;
+  font: inherit;
+}
+.access-card input { background: #090909; color: #fff; }
+.access-card button { background: #df1741; color: #fff; font-weight: 700; cursor: pointer; }
+.access-card button:focus, .access-card input:focus { outline: 3px solid #fff; outline-offset: 2px; }
+.access-card button[disabled] { opacity: .65; }
+.access-message { min-height: 1.4em; color: #ffb8c6; }
+.access-gate[hidden] { display: none; }
+
+@media (max-width: 520px) {
+  .access-gate { padding: 16px; }
+  .access-card { border-radius: 8px; }
+}

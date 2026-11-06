@@ -119,7 +119,7 @@ async function fixture(t, failSession = false) {
     resolveLive(_code, done) { done(null, { url: `${base}/master.m3u8`, mime: 'application/x-mpegurl' }); },
     mediaInfo(_id, _seriesId, done) { done(null, { subtitles: [{ url: `${base}/subtitle.srt`, lang: 'es', format: 'srt' }] }); }
   };
-  const password = crypto.randomBytes(24).toString('base64url');
+  const password = crypto.randomBytes(10).toString('base64url').slice(0, 14);
   const apiHttp = {
     ...trackedHttp,
     createServer(handler) {
@@ -234,6 +234,25 @@ test('login throttling separates verified client addresses', async (t) => {
   assert.equal(other.status, 200);
 });
 
+test('browser bridge mirrors Luna result envelopes and states unsupported M3U limits', async (t) => {
+  const app = await fixture(t);
+  const cookie = await app.login();
+  const ping = await (await app.request('/api/ping', { cookie, body: {} })).json();
+  assert.equal(ping.returnValue, true);
+  assert.equal(ping.alive, true);
+
+  const diag = await (await app.request('/api/netdiag', { cookie, body: {} })).json();
+  assert.equal(diag.returnValue, true);
+  assert.equal(diag.partial, true);
+  assert.match(diag.note, /no mide DNS ni códecs/);
+
+  const m3u = await app.request('/api/live/m3u', { cookie, body: { url: 'https://example.invalid/list.m3u' } });
+  assert.equal(m3u.status, 501);
+  const failure = await m3u.json();
+  assert.equal(failure.returnValue, false);
+  assert.equal(failure.error, 'M3U_IMPORT_UNAVAILABLE');
+});
+
 test('native form login posts credentials and redirects without putting them in the URL', async (t) => {
   const app = await fixture(t);
   const response = await app.request('/api/login', {
@@ -251,7 +270,11 @@ test('blocked seed fallback returns a controlled session failure and API stays a
   for (let i = 0; i < 2; i++) {
     const response = await app.request('/api/home', { cookie, body: { root: 'movies' } });
     assert.equal(response.status, 502);
-    assert.deepEqual(await response.json(), { error: 'PORTAL_SESSION_UNAVAILABLE' });
+    const failure = await response.json();
+    assert.equal(failure.returnValue, false);
+    assert.equal(failure.error, 'PORTAL_SESSION_UNAVAILABLE');
+    assert.equal(failure.errorCode, 'PORTAL_SESSION_UNAVAILABLE');
+    assert.match(failure.errorText, /sesión/);
   }
   assert.equal((await app.request('/api/session', { cookie })).status, 200);
 });
