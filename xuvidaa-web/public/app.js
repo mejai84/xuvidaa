@@ -90,7 +90,7 @@
   function userMessage(error) {
     if (error && error.status === 401) return 'La sesión terminó. Vuelve a ingresar.';
     if (error && error.message === 'PORTAL_SESSION_UNAVAILABLE') return 'El portal no pudo iniciar sesión desde este servidor.';
-    if (error && error.message === 'PORTAL_REGION_BLOCKED') return 'El portal bloqueó el acceso desde la región de este servidor. No se pudieron cargar los programas.';
+    if (error && error.message === 'PORTAL_REGION_BLOCKED') return 'El portal marcó esta región como bloqueada; su catálogo no está visible.';
     if (error && error.message === 'PORTAL_SESSION_TIMEOUT') return 'El portal tardó demasiado en iniciar sesión. Inténtalo otra vez más tarde.';
     if (error && error.message === 'PORTAL_REQUEST_FAILED') return 'El portal no respondió. Inténtalo de nuevo.';
     if (error && error.message === 'PORTAL_REQUEST_TIMEOUT') return 'El portal no respondió a tiempo; los programas no se pudieron cargar.';
