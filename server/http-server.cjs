@@ -199,6 +199,7 @@ function createServer(options) {
         return json(res, 200, { authenticated: hasSession(req, sessionSecret) });
       }
       if (decoded === '/api/login') {
+        if (!accessPassword) return json(res, 404, { error: 'Acceso con contraseña deshabilitado' });
         if (req.method !== 'POST') return json(res, 405, { error: 'Método no permitido' });
         const origin = req.headers.origin;
         if (origin && origin !== publicUrl.origin) return json(res, 403, { error: 'Origen no permitido' });
@@ -264,10 +265,17 @@ function createServer(options) {
 
 function main() {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Se requiere Node.js 22 o posterior.');
-  const accessPassword = process.env.XUPER_WEB_PASSWORD || '';
-  const sessionSecret = process.env.XUPER_SESSION_SECRET || '';
-  if (Buffer.byteLength(accessPassword) < 14) throw new Error('Configura XUPER_WEB_PASSWORD con al menos 14 caracteres.');
-  if (Buffer.byteLength(sessionSecret) < 32) throw new Error('Configura XUPER_SESSION_SECRET con al menos 32 bytes aleatorios.');
+  // Passwordless mode is explicit opt-in: this app is reachable through public HTTPS.
+  // In this mode /api/session reports authenticated, and catalog/media APIs
+  // are accessible to anyone with the public URL (upstream secrets remain server-side).
+  const passwordless = process.env.XUPER_PASSWORDLESS === 'true';
+  if (passwordless && process.env.XUPER_PUBLIC_ACCESS_ACK !== 'yes') {
+    throw new Error('El acceso sin contraseña requiere XUPER_PUBLIC_ACCESS_ACK=yes: permite acceso público a catálogos y reproducción.');
+  }
+  const accessPassword = passwordless ? '' : (process.env.XUPER_WEB_PASSWORD || '');
+  const sessionSecret = passwordless ? '' : (process.env.XUPER_SESSION_SECRET || '');
+  if (!passwordless && Buffer.byteLength(accessPassword) < 14) throw new Error('Configura XUPER_WEB_PASSWORD con al menos 14 caracteres.');
+  if (!passwordless && Buffer.byteLength(sessionSecret) < 32) throw new Error('Configura XUPER_SESSION_SECRET con al menos 32 bytes aleatorios.');
   if (process.env.XUPER_BACKEND_URL) throw new Error('XUPER_BACKEND_URL no se utiliza; la interfaz y la API se alojan juntas en este VPS.');
   const secret = process.env.MEDIA_TOKEN_SECRET || process.env.XUPER_MEDIA_SECRET || '';
   if (secret.length < 32) throw new Error('Configura MEDIA_TOKEN_SECRET con al menos 32 caracteres aleatorios.');
