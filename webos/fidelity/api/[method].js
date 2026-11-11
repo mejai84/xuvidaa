@@ -3,6 +3,7 @@
 const path = require('path');
 const magis = require('./lib/magis');
 const { IptvOrgProvider } = require(path.join(__dirname, '../../../server/providers/iptvOrgProvider.cjs'));
+const { M3uProvider } = require(path.join(__dirname, '../../../server/providers/m3uProvider.cjs'));
 
 const iptvOrg = new IptvOrgProvider({
   country: process.env.IPTV_COUNTRY || 'CO',
@@ -11,10 +12,19 @@ const iptvOrg = new IptvOrgProvider({
   cacheDir: path.join(__dirname, '../../../server/.cache')
 });
 
+const m3uProvider = new M3uProvider({
+  baseUrl: process.env.M3U_BASE_URL || '',
+  username: process.env.M3U_USERNAME || '',
+  password: process.env.M3U_PASSWORD || '',
+  type: process.env.M3U_TYPE || 'm3u',
+  cacheDir: path.join(__dirname, '../../../server/.cache')
+});
+
 const methods = new Set([
   'ping', 'keepAlive', 'heartbeat', 'home', 'search', 'detail', 'resolve',
   'resolveSmooth', 'mediaInfo', 'liveChannels', 'liveCategories', 'fetchM3u',
-  'resolveLive', 'abortMedia', 'prewarm'
+  'resolveLive', 'abortMedia', 'prewarm',
+  'm3uMovies', 'm3uSeries', 'm3uDetail', 'm3uStatus'
 ]);
 const roots = new Set(['featured', 'movies', 'series', 'anime', 'kids', 'free']);
 const limits = new Map();
@@ -124,9 +134,93 @@ module.exports = async function handler(req, res) {
 
   try {
     if (method === 'ping' || method === 'heartbeat' || method === 'keepAlive') return done(null, { service: 'xuper-html', alive: true });
-    if (method === 'home') return portalRequest((finish) => magis.home(String(input.root || 'movies'), finish));
-    if (method === 'search') return portalRequest((finish) => magis.search(String(input.value || ''), finish));
-    if (method === 'detail') return portalRequest((finish) => magis.detail(String(input.contentId || ''), finish));
+    if (method === 'home') {
+      const root = String(input.root || 'movies');
+      try {
+        const hasDiskCache = await m3uProvider.readDiskCache();
+        if (m3uProvider.isConfigured() || m3uProvider.inMemoryCatalog || hasDiskCache) {
+          if (root === 'movies') {
+            const resMovies = await m3uProvider.getMovies({ pageNum: input.pageNum || 1, pageSize: input.pageSize || 30 });
+            if (resMovies && resMovies.items && resMovies.items.length) {
+              return done(null, { items: resMovies.items, total: resMovies.total });
+            }
+          } else if (root === 'series') {
+            const resSeries = await m3uProvider.getSeries({ pageNum: input.pageNum || 1, pageSize: input.pageSize || 30 });
+            if (resSeries && resSeries.items && resSeries.items.length) {
+              return done(null, { items: resSeries.items, total: resSeries.total });
+            }
+          } else if (root === 'featured') {
+            const [mov, ser] = await Promise.all([
+              m3uProvider.getMovies({ pageSize: 15 }).catch(() => ({ items: [] })),
+              m3uProvider.getSeries({ pageSize: 15 }).catch(() => ({ items: [] }))
+            ]);
+            const featured = (mov.items || []).concat(ser.items || []);
+            if (featured.length) {
+              return done(null, { items: featured, total: featured.length });
+            }
+          }
+        }
+      } catch (m3uErr) {
+        console.warn('[api] Fallback a portal para home (' + root + '):', m3uErr.message);
+      }
+      return portalRequest((finish) => magis.home(root, finish));
+    }
+    if (method === 'search') {
+      const q = String(input.value || input.q || '').trim();
+      try {
+        const hasDiskCache = await m3uProvider.readDiskCache();
+        if (m3uProvider.isConfigured() || m3uProvider.inMemoryCatalog || hasDiskCache) {
+          const resSearch = await m3uProvider.search(q, 30);
+          if (resSearch && resSearch.items && resSearch.items.length) {
+            return done(null, { items: resSearch.items, total: resSearch.total });
+          }
+        }
+      } catch (m3uErr) {
+        console.warn('[api] Fallback a portal para search:', m3uErr.message);
+      }
+      return portalRequest((finish) => magis.search(q, finish));
+    }
+    if (method === 'detail') {
+      const contentId = String(input.contentId || input.id || '').trim();
+      try {
+        const hasDiskCache = await m3uProvider.readDiskCache();
+        if (contentId.startsWith('mov-') || contentId.startsWith('series-') || m3uProvider.isConfigured() || m3uProvider.inMemoryCatalog || hasDiskCache) {
+          const resDetail = await m3uProvider.getDetail(contentId);
+          if (resDetail && resDetail.returnValue && resDetail.item) {
+            return done(null, {
+              item: resDetail.item,
+              seasons: resDetail.seasons || [],
+              episodes: resDetail.episodes || []
+            });
+          }
+        }
+      } catch (m3uErr) {
+        console.warn('[api] Fallback a portal para detail:', m3uErr.message);
+      }
+      return portalRequest((finish) => magis.detail(contentId, finish));
+    }
+    if (method === 'm3uMovies') {
+      const res = await m3uProvider.getMovies(input);
+      return done(null, res);
+    }
+    if (method === 'm3uSeries') {
+      const res = await m3uProvider.getSeries(input);
+      return done(null, res);
+    }
+    if (method === 'm3uDetail') {
+      const res = await m3uProvider.getDetail(input.contentId || input.id);
+      return done(null, res);
+    }
+    if (method === 'm3uStatus') {
+      const isConf = m3uProvider.isConfigured();
+      const cached = await m3uProvider.readDiskCache();
+      return done(null, {
+        configured: isConf,
+        hasCache: !!cached,
+        fetchedAt: cached ? cached.fetchedAt : null,
+        stats: cached ? cached.stats : null
+      });
+    }
     if (method === 'resolve') {
       return portalRequest((finish) => magis.resolve(String(input.contentId || ''), String(input.seriesContentId || ''), { trackIndex: input.trackIndex }, finish), (err, stream) => {
         if (err) return done(err);
