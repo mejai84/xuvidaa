@@ -53,11 +53,10 @@ div, section, span { outline: none; }
 
 /* =============================================================================
    WELCOME  (activity_welcome.xml)
-   bg wind_bg.webp ; name 27sp marginTop 417dp ; version 19sp alpha .7
+   TVVIDAA loader on a dark blue glow, without the legacy Xuper splash art
    ============================================================================= */
 #screen-welcome {
-  background: #000 url(../assets/original/welcome/wind_bg.webp) center center no-repeat;
-  background-size: 1920px 1080px;
+  background: radial-gradient(ellipse at 50% 44%, rgba(28, 69, 120, .42) 0%, rgba(12, 25, 45, .22) 34%, rgba(3, 6, 12, 0) 68%), linear-gradient(135deg, #090e18 0%, #05080e 52%, #020307 100%);
 }
 .welcome-name {
   position: absolute;
@@ -68,24 +67,25 @@ div, section, span { outline: none; }
   line-height: 40px;
   text-align: center;
   color: #ffffff;
+  display: none;
 }
 .welcome-version {
   position: absolute;
   left: 0; right: 0;
-  top: 692.5px;
+  top: 760px;
   height: 29px;
-  font-size: 28.5px;                /* 19sp */
+  font-size: 22px;
   line-height: 29px;
   text-align: center;
-  color: #ffffff;
-  opacity: .7;
+  color: rgba(224, 233, 247, .54);
+  letter-spacing: 2px;
 }
 .welcome-loading {
   position: absolute;
-  left: 720px;
-  top: 365px;
-  width: 480px;
-  height: 350px;
+  left: 710px;
+  top: 270px;
+  width: 500px;
+  height: 470px;
   display: -webkit-box;
   display: -webkit-flex;
   display: flex;
@@ -98,8 +98,8 @@ div, section, span { outline: none; }
   align-items: center;
 }
 .welcome-loading img {
-  width: 340px;
-  height: 340px;
+  width: 420px;
+  height: 420px;
   object-fit: contain;
   -webkit-animation: tvvidaa-loader-pulse 1.8s ease-in-out infinite;
   animation: tvvidaa-loader-pulse 1.8s ease-in-out infinite;
@@ -110,7 +110,7 @@ div, section, span { outline: none; }
   overflow: hidden;
   width: 190px;
   height: 4px;
-  margin-top: -15px;
+  margin-top: -12px;
   border-radius: 4px;
   background: rgba(255, 255, 255, .18);
   box-shadow: 0 0 16px rgba(246, 185, 48, .18);

@@ -1558,7 +1558,7 @@ function portalServiceCall(method, params, done, customTimeout) {
 
   /* ================================================================ WELCOME */
   function startWelcome() {
-    welcomeTimer = setTimeout(finishWelcome, 700);
+    welcomeTimer = setTimeout(finishWelcome, 1500);
   }
 
   function finishWelcome() {
