@@ -1,9 +1,9 @@
 'use strict';
 
-const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 const dnsx = require('./lib/dnsx');
+const mediaTokenCodec = require('./lib/media-token');
 const secret = process.env.MEDIA_TOKEN_SECRET || process.env.XUPER_MEDIA_SECRET || '';
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 
@@ -34,18 +34,11 @@ module.exports = function handler(req, res) {
   }
   if (!secret) return reply(res, 503, 'Media relay no configurado');
   if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Método no permitido');
-  const pieces = String(req.query.token || '').split('.');
-  if (pieces.length !== 2 || !/^[A-Za-z0-9_-]+$/.test(pieces[0])) return reply(res, 400, 'Token inválido');
-  const expected = crypto.createHmac('sha256', secret).update(pieces[0]).digest();
-  let supplied;
-  try { supplied = Buffer.from(pieces[1], 'base64url'); } catch (_) { return reply(res, 400, 'Token inválido'); }
-  if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) return reply(res, 403, 'Token inválido');
-
-  let entry, url;
-  try {
-    entry = JSON.parse(Buffer.from(pieces[0], 'base64url').toString('utf8'));
-    url = new URL(entry.url);
-  } catch (_) { return reply(res, 400, 'Token inválido'); }
+  const entry = mediaTokenCodec.decode(String(req.query.token || ''), secret);
+  if (!entry) return reply(res, 403, 'Token inválido');
+  let url;
+  try { url = new URL(entry.url); }
+  catch (_) { return reply(res, 400, 'Token inválido'); }
   if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
   let base;
   try { base = mediaBase(); } catch (_) { return reply(res, 503, 'URL pública del servicio no configurada correctamente'); }

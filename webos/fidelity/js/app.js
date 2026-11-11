@@ -5542,8 +5542,8 @@ function portalServiceCall(method, params, done, customTimeout) {
     if (prev && prev.id === (item.seasonId || item.id) && item.episodes && item.episodes.length) {
       prev._episodes = item.episodes;
     }
-    var sIdx = (state.playerSeasonIndex !== undefined && state.playerSeasonIndex !== null)
-      ? state.playerSeasonIndex : (state.browserSeason || 0);
+    var sIdx = (state.browserSeason !== undefined && state.browserSeason !== null)
+      ? state.browserSeason : (state.playerSeasonIndex || 0);
     var season = seasons[sIdx];
     if (season) {
       if (state.detailSeason !== sIdx) {

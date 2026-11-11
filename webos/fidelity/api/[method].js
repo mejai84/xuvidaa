@@ -1,6 +1,7 @@
 'use strict';
 
 const magis = require('./lib/magis');
+const mediaTokenCodec = require('./lib/media-token');
 
 const methods = new Set([
   'ping', 'keepAlive', 'heartbeat', 'home', 'search', 'detail', 'resolve',
@@ -10,10 +11,6 @@ const methods = new Set([
 const roots = new Set(['featured', 'movies', 'series', 'anime', 'kids', 'free']);
 const limits = new Map();
 const secret = process.env.MEDIA_TOKEN_SECRET || process.env.XUPER_MEDIA_SECRET || '';
-const crypto = require('crypto');
-
-function b64(value) { return Buffer.from(value).toString('base64url'); }
-function sign(value) { return crypto.createHmac('sha256', secret).update(value).digest('base64url'); }
 function tokenHosts(stream) {
   const configured = (process.env.MEDIA_ALLOWED_HOSTS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
   const cacheFlyAuth = /(?:^|[?&])sign_type=cfl(?:&|$)/i.test(String((stream.headers || {})['Content-Auth'] || (stream.headers || {})['content-auth'] || ''));
@@ -33,11 +30,9 @@ function mediaExpiry(stream, live) {
 function issueMediaToken(stream, expiresAt) {
   if (!secret || !stream || !/^https?:\/\//i.test(stream.url || '')) return '';
   const hosts = tokenHosts(stream);
-  const payload = b64(JSON.stringify({
+  return mediaTokenCodec.encode({
     url: stream.url, hosts: hosts, headers: stream.headers || {}, mime: stream.mime || '', duration: Number(stream.duration) || 0, subtitles: stream.subtitles || [], exp: expiresAt,
-    session: crypto.randomBytes(12).toString('hex')
-  }));
-  return payload + '.' + sign(payload);
+  }, secret);
 }
 
 function reply(res, status, value) {
