@@ -294,19 +294,23 @@ div, section, span { outline: none; }
 .portal-status {
   position: absolute;
   z-index: 27;
-  left: 390px;
-  right: 72px;
+  left: auto;
+  right: 46px;
   top: auto;
-  bottom: 22px;
-  max-height: 105px;
+  bottom: 26px;
+  width: 690px;
+  max-width: 44%;
+  max-height: 96px;
   overflow: hidden;
-  padding: 16px 22px;
-  border-left: 5px solid #f2a900;
-  border-radius: 3px;
-  background: rgba(18, 18, 18, .94);
-  color: #f1f1f1;
-  font-size: 25px;
-  line-height: 1.35;
+  padding: 15px 20px 15px 24px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-left: 4px solid #ffb547;
+  border-radius: 13px;
+  background: rgba(19, 25, 36, .97);
+  box-shadow: 0 12px 32px rgba(0,0,0,.4);
+  color: #e7ebf2;
+  font-size: 20px;
+  line-height: 1.4;
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -618,9 +622,8 @@ div, section, span { outline: none; }
   z-index: 1;
   left: 0; top: 0;
   width: 1280px; height: 720px;
-  background: url(../assets/original/common/img_thubnail_default.png) center center no-repeat;
-  background-size: cover;
-  opacity: .55;
+  background: radial-gradient(ellipse at 42% 45%, rgba(36,89,143,.42), rgba(15,28,47,.23) 48%, rgba(7,11,19,.96) 100%), linear-gradient(135deg, #101a2d, #070b12 70%);
+  opacity: 1;
 }
 .live-main .live-logo {
   position: absolute;
@@ -632,6 +635,43 @@ div, section, span { outline: none; }
   background-size: contain;
   opacity: .55;
 }
+.live-empty-state {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  left: 54px;
+  top: 50%;
+  width: 650px;
+  padding: 40px 44px 42px;
+  box-sizing: border-box;
+  -webkit-transform: translateY(-50%);
+  transform: translateY(-50%);
+  border: 1px solid rgba(151,190,239,.22);
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(20,34,54,.96), rgba(10,16,26,.96));
+  box-shadow: 0 26px 70px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.06);
+  text-align: left;
+}
+.live-main.is-empty .live-empty-state { display: block; }
+.live-main.is-empty .live-frame { opacity: .72; }
+.live-main.is-empty .live-logo { display: none; }
+.live-empty-mark {
+  width: 76px;
+  height: 58px;
+  margin-bottom: 27px;
+  border: 2px solid rgba(117,174,255,.92);
+  border-radius: 13px;
+  background: linear-gradient(145deg, rgba(72,135,226,.4), rgba(34,57,91,.45));
+  box-shadow: 0 0 34px rgba(60,135,237,.22);
+  color: #eff6ff;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 58px;
+  text-align: center;
+}
+.live-empty-kicker { color: #8dbbff; font-size: 17px; font-weight: 700; letter-spacing: 3px; }
+.live-empty-title { margin-top: 11px; color: #fff; font-size: 39px; font-weight: 700; line-height: 1.2; }
+.live-empty-copy { max-width: 525px; margin-top: 13px; color: rgba(231,238,249,.7); font-size: 21px; line-height: 1.5; }
 .live-main.is-preview-playing .live-frame { opacity: .10; }
 .live-main.is-preview-playing .live-logo { display: none; }
 .live-preview-status {
@@ -730,12 +770,18 @@ div, section, span { outline: none; }
   overflow: hidden;
 }
 .live-list-status {
-  padding: 42px 18px;
-  color: rgba(255,255,255,.78);
-  font-size: 24px;
-  line-height: 32px;
+  margin: 20px 8px;
+  padding: 19px 15px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 13px;
+  background: rgba(255,255,255,.035);
+  color: rgba(255,255,255,.72);
+  font-size: 20px;
+  line-height: 1.45;
   text-align: center;
 }
+.live-list-status.is-loading { color: rgba(200,215,238,.72); }
+.live-list-status.is-empty { border-color: rgba(125,164,219,.12); background: rgba(30,47,71,.34); color: #dbe6f5; }
 .live-row {
   position: relative;
   display: -webkit-box;

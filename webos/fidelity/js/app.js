@@ -1984,6 +1984,13 @@ function portalServiceCall(method, params, done, customTimeout) {
     liveMain.appendChild(livePreviewVideo);
     liveMain.appendChild(el('div', 'live-frame'));
     liveMain.appendChild(el('div', 'live-logo'));
+    var emptyState = el('div', 'live-empty-state');
+    emptyState.setAttribute('aria-live', 'polite');
+    emptyState.appendChild(el('div', 'live-empty-mark', 'TV'));
+    emptyState.appendChild(el('div', 'live-empty-kicker', 'TV EN VIVO'));
+    emptyState.appendChild(el('div', 'live-empty-title', 'Tu señal en directo'));
+    emptyState.appendChild(el('div', 'live-empty-copy', 'Los canales aparecerán aquí cuando el catálogo esté disponible.'));
+    liveMain.appendChild(emptyState);
     livePreviewStatus = el('div', 'live-preview-status');
     liveMain.appendChild(livePreviewStatus);
     page.appendChild(liveMain);
@@ -2422,10 +2429,16 @@ function portalServiceCall(method, params, done, customTimeout) {
     clear(liveList);
     liveRows = [];
     if (!CHANNELS.length) {
-      liveList.appendChild(el('div', 'live-list-status',
-        liveChannelsLoaded ? 'No se encontraron canales' : 'Cargando canales…'));
+      var empty = liveChannelsLoaded;
+      if (liveMain) {
+        if (empty) { liveMain.classList.add('is-empty'); }
+        else { liveMain.classList.remove('is-empty'); }
+      }
+      liveList.appendChild(el('div', 'live-list-status' + (empty ? ' is-empty' : ' is-loading'),
+        empty ? 'Sin canales disponibles' : 'Buscando canales…'));
       return;
     }
+    if (liveMain) { liveMain.classList.remove('is-empty'); }
     for (var i = 0; i < CHANNELS.length; i++) {
       if (favOnly && !CHANNELS[i].fav) { continue; }
       var row = el('div', 'live-row focusable');
