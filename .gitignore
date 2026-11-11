@@ -31,6 +31,8 @@ webos/fidelity/config/api.production.js
 webos/fidelity/data/portal.local.js
 webos/services/com.webosflux.xuptertv.fidelity.service/*.log
 webos/services/com.webosflux.xuptertv.fidelity.service/.cache/
+server/.cache/
+.cache/
 
 # Instalador: recuerda la ultima IP/usuario del televisor
 tools/instalar-config.json
