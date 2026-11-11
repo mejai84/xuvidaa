@@ -244,12 +244,80 @@ module.exports = async function handler(req, res) {
       });
     }
     if (method === 'resolve') {
+      const contentId = String(input.contentId || input.id || '').trim();
+      const isM3u = /^(?:mov-|ep-)/.test(contentId);
+
+      if (isM3u) {
+        try {
+          const resolved = await m3uProvider.resolveStream(contentId);
+          if (!resolved || !resolved.found || !resolved.streamUrl) {
+            return reply(res, 404, { returnValue: false, errorText: 'Contenido no encontrado en el proveedor' });
+          }
+
+          let parsedStreamUrl;
+          try {
+            parsedStreamUrl = new URL(resolved.streamUrl);
+          } catch (_) {
+            return reply(res, 502, { returnValue: false, errorText: 'URL de transmisión inválida en el catálogo M3U.' });
+          }
+
+          if (parsedStreamUrl.protocol !== 'http:' && parsedStreamUrl.protocol !== 'https:') {
+            return reply(res, 502, { returnValue: false, errorText: 'Protocolo de transmisión no soportado.' });
+          }
+
+          let providerHost = '';
+          try { providerHost = new URL(m3uProvider.baseUrl).hostname.toLowerCase(); } catch (_) { /* unavailable */ }
+          const streamHost = parsedStreamUrl.hostname.toLowerCase();
+          const approvedCacheFly = streamHost === 'cachefly.net' || streamHost.endsWith('.cachefly.net');
+          if (parsedStreamUrl.username || parsedStreamUrl.password || isPrivateOrLocalHost(streamHost) ||
+              (!providerHost || (streamHost !== providerHost && !approvedCacheFly))) {
+            return reply(res, 403, { returnValue: false, errorText: 'Dirección de transmisión restringida.' });
+          }
+
+          const streamObj = {
+            url: parsedStreamUrl.toString(),
+            name: (resolved.item && resolved.item.title) || 'VOD',
+            mime: resolved.mime,
+            duration: resolved.duration,
+            subtitles: [],
+            headers: {},
+            backupUrls: []
+          };
+
+          const mediaExpiresAt = mediaExpiry(streamObj, false);
+          const mediaToken = issueMediaToken(streamObj, mediaExpiresAt);
+          if (!mediaToken) {
+            return reply(res, 503, { returnValue: false, errorText: 'Falta configurar MEDIA_TOKEN_SECRET para reproducir VOD.' });
+          }
+
+          const isHls = !!resolved.isHls;
+          const vodMediaUrl = mediaProxyUrl(mediaToken, isHls ? '&manifest=1' : '');
+
+          return reply(res, 200, {
+            returnValue: true,
+            name: streamObj.name,
+            mime: resolved.mime,
+            isHls: isHls,
+            duration: (resolved.item && resolved.item.duration) || 0,
+            mediaToken: mediaToken,
+            mediaExpiresAt: mediaExpiresAt,
+            mediaUrl: vodMediaUrl,
+            url: vodMediaUrl,
+            subtitles: [],
+            source: 'private-m3u'
+          });
+        } catch (m3uErr) {
+          console.error('[api] Error resolviendo VOD M3U:', m3uErr.message);
+          return reply(res, 500, { returnValue: false, errorText: 'Error interno resolviendo contenido M3U' });
+        }
+      }
+
       return portalRequest((finish) => magis.resolve(String(input.contentId || ''), String(input.seriesContentId || ''), { trackIndex: input.trackIndex }, finish), (err, stream) => {
         if (err) return done(err);
         let mediaUrl;
         try { mediaUrl = new URL(stream.url); } catch (_) { return reply(res, 502, { returnValue: false, errorText: 'El portal devolvió una URL inválida.' }); }
         if (mediaUrl.protocol !== 'https:') {
-          return reply(res, 503, { returnValue: false, errorText: 'El portal devolviÃ³ un host CDN no HTTPS.' });
+          return reply(res, 503, { returnValue: false, errorText: 'El portal devolvió un host CDN no HTTPS.' });
         }
         const mediaExpiresAt = mediaExpiry(stream, false);
         const mediaToken = issueMediaToken(stream, mediaExpiresAt);
@@ -402,3 +470,6 @@ module.exports = async function handler(req, res) {
     return done(err);
   }
 };
+
+module.exports.m3uProvider = m3uProvider;
+module.exports.iptvOrg = iptvOrg;

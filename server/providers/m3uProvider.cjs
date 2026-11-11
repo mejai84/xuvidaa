@@ -112,6 +112,7 @@ class M3uProvider {
 
     // In-memory catalog
     this.inMemoryCatalog = null;
+    this.streamIndex = null;
     this.fetchedAt = 0;
     this.refreshPromise = null;
   }
@@ -365,6 +366,8 @@ class M3uProvider {
     const sanitizeMovies = data.movies.map((m) => {
       const copy = Object.assign({}, m);
       delete copy.streamUrl; // do not store raw authenticated URL on disk
+      // Store only a relative, credential-free provider path so the stream
+      // index can be restored after a process restart.
       return copy;
     });
 
@@ -435,6 +438,7 @@ class M3uProvider {
         const disk = await this.readDiskCache();
         if (disk && (Date.now() - (disk.fetchedAt || 0) < this.ttlMs)) {
           this.inMemoryCatalog = disk;
+          this.streamIndex = null;
           this.fetchedAt = disk.fetchedAt || Date.now();
           return this.inMemoryCatalog;
         }
@@ -446,6 +450,7 @@ class M3uProvider {
         const parsed = this.parseM3u(rawM3u);
 
         this.inMemoryCatalog = parsed;
+        this.streamIndex = this.buildStreamIndex(parsed);
         this.fetchedAt = parsed.fetchedAt;
         await this.writeDiskCache(parsed);
 
@@ -686,6 +691,116 @@ class M3uProvider {
       returnValue: true,
       items: results,
       total: results.length
+    };
+  }
+
+  buildStreamIndex(catalog) {
+    const index = new Map();
+    if (!catalog) return index;
+
+    for (const m of (catalog.movies || [])) {
+      if (m && m.id && m.streamUrl) {
+        const entry = {
+          id: m.id,
+          sourceItemId: m.sourceItemId,
+          title: m.title,
+          streamUrl: m.streamUrl,
+          type: 'movie',
+          category: m.category,
+          poster: m.poster,
+          duration: m.duration || 0
+        };
+        index.set(m.id, entry);
+        if (m.sourceItemId && !index.has(m.sourceItemId)) {
+          index.set(m.sourceItemId, entry);
+        }
+      }
+    }
+
+    for (const s of (catalog.series || [])) {
+      for (const season of (s.seasons || [])) {
+        for (const ep of (season.episodes || [])) {
+          if (ep && ep.id && ep.streamUrl) {
+            const entry = {
+              id: ep.id,
+              sourceItemId: ep.sourceItemId,
+              title: ep.title ? `${s.title} - S${ep.season}E${ep.episode} - ${ep.title}` : s.title,
+              rawTitle: ep.title,
+              seriesTitle: s.title,
+              season: ep.season,
+              episode: ep.episode,
+              streamUrl: ep.streamUrl,
+              type: 'episode',
+              poster: ep.logo || s.poster,
+              duration: ep.duration || 0
+            };
+            index.set(ep.id, entry);
+            if (ep.sourceItemId && !index.has(ep.sourceItemId)) {
+              index.set(ep.sourceItemId, entry);
+            }
+          }
+        }
+      }
+    }
+
+    return index;
+  }
+
+  async resolveStream(contentId) {
+    if (!contentId || typeof contentId !== 'string') {
+      return { found: false, errorText: 'Identificador no proporcionado' };
+    }
+
+    const targetId = contentId.trim();
+
+    // 1. If streamIndex not built yet but in-memory catalog exists, build it
+    if ((!this.streamIndex || this.streamIndex.size === 0) && this.inMemoryCatalog) {
+      this.streamIndex = this.buildStreamIndex(this.inMemoryCatalog);
+    }
+
+    let entry = this.streamIndex ? this.streamIndex.get(targetId) : null;
+
+    // If not found or streamIndex empty (e.g. cold restart with disk cache), refresh if configured
+    if ((!entry || !entry.streamUrl) && this.isConfigured()) {
+      try {
+        const fresh = await this.refresh(true);
+        this.streamIndex = this.buildStreamIndex(fresh);
+        entry = this.streamIndex ? this.streamIndex.get(targetId) : null;
+      } catch (err) {
+        console.error('[M3uProvider] Error refrescando catálogo para resolver stream:', err.message);
+      }
+    }
+
+    entry = this.streamIndex ? this.streamIndex.get(targetId) : null;
+
+    if (!entry || !entry.streamUrl) {
+      return { found: false, errorText: 'Contenido no encontrado en el proveedor' };
+    }
+
+    const streamUrl = entry.streamUrl;
+    const isHls = /\.m3u8(?:\?|$)/i.test(streamUrl);
+    let mime = 'video/mp4';
+    if (isHls) {
+      mime = 'application/vnd.apple.mpegurl';
+    } else if (/\.mkv(?:\?|$)/i.test(streamUrl)) {
+      mime = 'video/x-matroska';
+    } else if (/\.ts(?:\?|$)/i.test(streamUrl)) {
+      mime = 'video/mp2t';
+    } else if (/\.avi(?:\?|$)/i.test(streamUrl)) {
+      mime = 'video/x-msvideo';
+    }
+
+    // Default duration: 4 hours (14400s) if duration is not set or 0, ensures at least 4.5h token validity
+    const duration = (Number.isFinite(entry.duration) && entry.duration > 0) ? entry.duration : 14400;
+
+    return {
+      found: true,
+      item: entry,
+      streamUrl: streamUrl,
+      type: entry.type,
+      isHls: isHls,
+      mime: mime,
+      duration: duration
     };
   }
 }
