@@ -1,6 +1,15 @@
 'use strict';
 
+const path = require('path');
 const magis = require('./lib/magis');
+const { IptvOrgProvider } = require(path.join(__dirname, '../../../server/providers/iptvOrgProvider.cjs'));
+
+const iptvOrg = new IptvOrgProvider({
+  country: process.env.IPTV_COUNTRY || 'CO',
+  languagePriority: process.env.IPTV_LANG || 'spa',
+  excludeNsfw: process.env.IPTV_EXCLUDE_NSFW !== 'false',
+  cacheDir: path.join(__dirname, '../../../server/.cache')
+});
 
 const methods = new Set([
   'ping', 'keepAlive', 'heartbeat', 'home', 'search', 'detail', 'resolve',
@@ -145,8 +154,38 @@ module.exports = async function handler(req, res) {
       });
     }
     if (method === 'mediaInfo') return portalRequest((finish) => magis.mediaInfo(String(input.contentId || ''), String(input.seriesContentId || ''), finish));
-    if (method === 'liveCategories') return portalRequest((finish) => magis.getLiveCategories((err, categories) => finish(err, { categories: categories || [] })));
-    if (method === 'liveChannels') return portalRequest((finish) => magis.getLiveChannels(input.columnId || null, input.pageNum, input.pageSize, (err, channels, hasMore) => finish(err, { channels: channels || [], hasMore: !!hasMore, pageNum: Number(input.pageNum) || 1 })));
+    if (method === 'liveCategories') {
+      try {
+        const res = await iptvOrg.getCategories();
+        if (res && res.categories && res.categories.length) {
+          return done(null, { categories: res.categories });
+        }
+      } catch (iptvErr) {
+        console.warn('[api] Fallback a portal para liveCategories:', iptvErr.message);
+      }
+      return portalRequest((finish) => magis.getLiveCategories((err, categories) => finish(err, { categories: categories || [] })));
+    }
+    if (method === 'liveChannels') {
+      try {
+        const res = await iptvOrg.getChannels({
+          columnId: input.columnId,
+          pageNum: input.pageNum,
+          pageSize: input.pageSize,
+          search: input.search || input.value
+        });
+        if (res && res.channels) {
+          return done(null, {
+            channels: res.channels,
+            hasMore: !!res.hasMore,
+            pageNum: Number(res.pageNum) || 1,
+            total: res.total
+          });
+        }
+      } catch (iptvErr) {
+        console.warn('[api] Fallback a portal para liveChannels:', iptvErr.message);
+      }
+      return portalRequest((finish) => magis.getLiveChannels(input.columnId || null, input.pageNum, input.pageSize, (err, channels, hasMore) => finish(err, { channels: channels || [], hasMore: !!hasMore, pageNum: Number(input.pageNum) || 1 })));
+    }
     if (method === 'prewarm') return portalRequest((finish) => magis.ensureSession((err) => finish(err, {})));
     if (method === 'abortMedia') return done(null, {});
     if (method === 'resolveLive') {
