@@ -490,6 +490,42 @@ class IptvOrgProvider {
       stats: data.stats
     };
   }
+
+  async getChannel(codeOrUrl) {
+    if (!codeOrUrl) return null;
+    const data = await this.refresh(false);
+    const target = String(codeOrUrl).trim();
+    if (!target) return null;
+
+    const channels = data.channels || [];
+    const targetLower = target.toLowerCase();
+
+    // 1. Direct match by id or channelCode (case-insensitive)
+    let found = channels.find((ch) =>
+      (ch.id && ch.id.toLowerCase() === targetLower) ||
+      (ch.channelCode && ch.channelCode.toLowerCase() === targetLower)
+    );
+    if (found) return found;
+
+    // 2. Match by normalized name
+    const qNorm = normalizeText(target);
+    if (qNorm) {
+      found = channels.find((ch) => normalizeText(ch.name) === qNorm);
+      if (found) return found;
+    }
+
+    // 3. Match by streamUrl (if a verified stream URL was provided)
+    if (/^https?:\/\//i.test(target)) {
+      found = channels.find((ch) => {
+        if (ch.streamUrl && ch.streamUrl.toLowerCase() === targetLower) return true;
+        if (Array.isArray(ch.streams) && ch.streams.some((s) => s.url && s.url.toLowerCase() === targetLower)) return true;
+        return false;
+      });
+      if (found) return found;
+    }
+
+    return null;
+  }
 }
 
 module.exports = {

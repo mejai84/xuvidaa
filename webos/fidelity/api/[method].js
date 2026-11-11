@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const net = require('net');
 const magis = require('./lib/magis');
 const { IptvOrgProvider } = require(path.join(__dirname, '../../../server/providers/iptvOrgProvider.cjs'));
 const { M3uProvider } = require(path.join(__dirname, '../../../server/providers/m3uProvider.cjs'));
@@ -74,6 +75,27 @@ function mediaProxyUrl(token, suffix) {
     } catch (_) { /* Keep same-origin URLs when no valid public origin exists. */ }
   }
   return origin + '/api/media?token=' + encodeURIComponent(token) + (suffix || '');
+}
+
+function isPrivateOrLocalHost(hostname) {
+  const h = String(hostname || '').trim().toLowerCase();
+  if (!h) return true;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '0.0.0.0' || h === '::') return true;
+  if (h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.lan') || h.endsWith('.corp')) return true;
+  if (net.isIPv4(h)) {
+    const parts = h.split('.').map(Number);
+    if (parts[0] === 127) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 0) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] >= 224) return true;
+  }
+  if (net.isIPv6(h)) {
+    if (h === '::1' || h.startsWith('fe80:') || h.startsWith('fc00:') || h.startsWith('fd00:')) return true;
+  }
+  return false;
 }
 
 module.exports = async function handler(req, res) {
@@ -283,11 +305,87 @@ module.exports = async function handler(req, res) {
     if (method === 'prewarm') return portalRequest((finish) => magis.ensureSession((err) => finish(err, {})));
     if (method === 'abortMedia') return done(null, {});
     if (method === 'resolveLive') {
+      const channelTarget = String(input.channelCode || input.id || input.streamUrl || '').trim();
+      if (channelTarget) {
+        try {
+          const iptvChannel = await iptvOrg.getChannel(channelTarget);
+          if (iptvChannel && iptvChannel.source === 'iptv-org') {
+            if (!iptvChannel.hasStream || !iptvChannel.streamUrl) {
+              return reply(res, 404, { returnValue: false, errorText: 'El canal ' + (iptvChannel.name || channelTarget) + ' no tiene transmisiones disponibles.' });
+            }
+
+            // Seleccionar el mejor stream disponible priorizando HTTPS
+            let chosenStream = null;
+            if (Array.isArray(iptvChannel.streams) && iptvChannel.streams.length > 0) {
+              chosenStream = iptvChannel.streams.find((s) => s.url && s.url.startsWith('https://')) || iptvChannel.streams[0];
+            } else if (iptvChannel.streamUrl) {
+              chosenStream = { url: iptvChannel.streamUrl, quality: iptvChannel.quality };
+            }
+
+            if (!chosenStream || !chosenStream.url) {
+              return reply(res, 404, { returnValue: false, errorText: 'No se encontró un stream válido para este canal.' });
+            }
+
+            let parsedStreamUrl;
+            try {
+              parsedStreamUrl = new URL(chosenStream.url);
+            } catch (_) {
+              return reply(res, 502, { returnValue: false, errorText: 'URL de transmisión inválida en el catálogo.' });
+            }
+
+            if (parsedStreamUrl.protocol !== 'http:' && parsedStreamUrl.protocol !== 'https:') {
+              return reply(res, 502, { returnValue: false, errorText: 'Protocolo de transmisión no soportado.' });
+            }
+
+            if (isPrivateOrLocalHost(parsedStreamUrl.hostname)) {
+              return reply(res, 403, { returnValue: false, errorText: 'Dirección de transmisión restringida.' });
+            }
+
+            const backupUrls = (iptvChannel.streams || [])
+              .map((s) => s && s.url)
+              .filter((u) => u && typeof u === 'string' && u !== chosenStream.url && /^https?:\/\//i.test(u));
+
+            const isHls = /\.m3u8(?:\?|$)/i.test(chosenStream.url) || /mpegurl/i.test(chosenStream.mime || '');
+            const mime = isHls ? 'application/vnd.apple.mpegurl' : (chosenStream.mime || 'video/mp2t');
+
+            const streamObj = {
+              url: chosenStream.url,
+              name: iptvChannel.name || 'Canal en vivo',
+              mime: mime,
+              backupUrls: backupUrls
+            };
+
+            const mediaExpiresAt = mediaExpiry(streamObj, true);
+            const mediaToken = issueMediaToken(streamObj, mediaExpiresAt);
+            if (!mediaToken) {
+              return reply(res, 503, { returnValue: false, errorText: 'Falta configurar MEDIA_TOKEN_SECRET para TV en vivo.' });
+            }
+
+            const liveMediaUrl = mediaProxyUrl(mediaToken, isHls ? '&manifest=1' : '');
+
+            return reply(res, 200, {
+              returnValue: true,
+              name: iptvChannel.name,
+              mime: mime,
+              isHls: isHls,
+              mediaToken: mediaToken,
+              mediaExpiresAt: mediaExpiresAt,
+              mediaUrl: liveMediaUrl,
+              url: liveMediaUrl,
+              channelCode: iptvChannel.channelCode,
+              source: 'iptv-org'
+            });
+          }
+        } catch (iptvErr) {
+          console.warn('[api] Fallback a portal tras fallo en IPTV-org resolveLive:', iptvErr.message);
+        }
+      }
+
       return portalRequest((finish) => magis.resolveLive(String(input.channelCode || ''), finish), (err, stream) => {
         if (err) return done(err);
         let liveUrl;
-        try { liveUrl = new URL(stream.url); } catch (_) { return reply(res, 502, { returnValue: false, errorText: 'El portal devolviÃ³ una URL de vivo invÃ¡lida.' }); }
-        if (liveUrl.protocol !== 'http:' && liveUrl.protocol !== 'https:') return reply(res, 502, { returnValue: false, errorText: 'Protocolo de vivo invÃ¡lido.' });
+        try { liveUrl = new URL(stream.url); } catch (_) { return reply(res, 502, { returnValue: false, errorText: 'El portal devolvió una URL de vivo inválida.' }); }
+        if (liveUrl.protocol !== 'http:' && liveUrl.protocol !== 'https:') return reply(res, 502, { returnValue: false, errorText: 'Protocolo de vivo inválido.' });
         stream.url = liveUrl.protocol + '//' + liveUrl.host + liveUrl.pathname + liveUrl.search;
         stream.backupUrls = (stream.backupUrls || []).map((backup) => {
           try { const parsed = new URL(backup); return parsed.protocol + '//' + parsed.host + parsed.pathname + parsed.search; } catch (_) { return ''; }
