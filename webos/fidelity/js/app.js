@@ -1558,13 +1558,7 @@ function portalServiceCall(method, params, done, customTimeout) {
 
   /* ================================================================ WELCOME */
   function startWelcome() {
-    var img = $('welcome-loading-img');
-    var frame = 1;
-    welcomeTimer = setInterval(function () {
-      frame++;
-      if (frame > 16) { finishWelcome(); return; }
-      img.src = 'assets/original/welcome/img_welcome_loading' + frame + '.png';
-    }, 250);
+    welcomeTimer = setTimeout(finishWelcome, 700);
   }
 
   function finishWelcome() {
@@ -1572,9 +1566,10 @@ function portalServiceCall(method, params, done, customTimeout) {
     if (!homeBuilt) { buildHome(); }
     showScreen('home');
     selectTab(0, false);
-    setFocus(liveFocus);
-    /* The first launch shows the full tab labels even though the video holds
-       focus; the rail collapses on the first focus change. */
+    var launcher = $('home-launcher');
+    if (launcher) { launcher.classList.remove('is-hidden'); }
+    if (tabEls[0]) { setFocus(tabEls[0]); }
+    /* The launcher opens first; the tab rail keeps its full labels. */
     var rail = $('home-tabs');
     if (rail) { rail.classList.add('is-expanded'); rail.classList.remove('is-collapsed'); }
     var railBg = document.querySelector('.home-sidebar-bg');
@@ -1615,6 +1610,92 @@ function portalServiceCall(method, params, done, customTimeout) {
 
     buildTabs();
     buildNotify();
+    buildHomeLauncher();
+  }
+
+  function buildHomeLauncher() {
+    var host = $('home-launcher');
+    if (!host) { return; }
+    clear(host);
+    host.classList.add('scrollable');
+
+    var hero = el('section', 'launcher-hero');
+    var heroCopy = el('div', 'launcher-hero-copy');
+    heroCopy.appendChild(el('div', 'launcher-eyebrow', 'TU ENTRETENIMIENTO, EN UN SOLO LUGAR'));
+    heroCopy.appendChild(el('div', 'launcher-title', 'Todo lo que te gusta.'));
+    heroCopy.appendChild(el('div', 'launcher-description', 'Canales en vivo, películas y series para disfrutar en tu TV.'));
+    var heroAction = el('button', 'launcher-hero-action focusable', 'Explorar destacados');
+    heroAction._onFocus = function () { setFocus(heroAction); };
+    heroAction._activate = function () { activateLauncherTab(1, heroAction); };
+    hero.appendChild(heroCopy);
+    hero.appendChild(heroAction);
+    hero.appendChild(el('div', 'launcher-orb launcher-orb-one'));
+    hero.appendChild(el('div', 'launcher-orb launcher-orb-two'));
+    hero.appendChild(el('div', 'launcher-play-mark', '▶'));
+    host.appendChild(hero);
+
+    var shortcuts = [
+      { label: 'TV en vivo', sub: 'Canales y programación', icon: '▣', tab: 0, tone: 'blue' },
+      { label: 'Películas', sub: 'Cine para cada momento', icon: '▶', tab: 2, tone: 'coral' },
+      { label: 'Series', sub: 'Historias que enganchan', icon: '▤', tab: 3, tone: 'violet' },
+      { label: 'Kids', sub: 'Diversión para pequeños', icon: '✦', tab: 4, tone: 'green' },
+      { label: 'Anime', sub: 'Mundos extraordinarios', icon: '✿', tab: 5, tone: 'pink' },
+      { label: 'Explorar', sub: 'Descubre más contenido', icon: '⌕', tab: 7, tone: 'amber' }
+    ];
+    var row = el('div', 'launcher-shortcuts');
+    for (var i = 0; i < shortcuts.length; i++) {
+      (function (shortcut) {
+        var card = el('button', 'launcher-card focusable tone-' + shortcut.tone);
+        card.appendChild(el('span', 'launcher-card-icon', shortcut.icon));
+        card.appendChild(el('span', 'launcher-card-title', shortcut.label));
+        card.appendChild(el('span', 'launcher-card-subtitle', shortcut.sub));
+        card._activate = function () { activateLauncherTab(shortcut.tab, card); };
+        card._onMove = function (dir) {
+          var cards = row.querySelectorAll('.launcher-card');
+          var idx = Array.prototype.indexOf.call(cards, card);
+          if (dir === 'left' && idx > 0) { setFocus(cards[idx - 1]); return true; }
+          if (dir === 'right' && idx < cards.length - 1) { setFocus(cards[idx + 1]); return true; }
+          if (dir === 'up') { setFocus(heroAction); return true; }
+          if (dir === 'down') { setFocus(tabEls[0]); return true; }
+          return false;
+        };
+        row.appendChild(card);
+      })(shortcuts[i]);
+    }
+    host.appendChild(row);
+
+    var sectionTitle = el('div', 'launcher-section-title', 'Sigue explorando');
+    host.appendChild(sectionTitle);
+    var links = el('div', 'launcher-links');
+    var linkDefs = [
+      { label: 'Destacados', tab: 1 }, { label: 'Novelas', tab: 6 },
+      { label: 'Mi lista', tab: 8 }
+    ];
+    for (var j = 0; j < linkDefs.length; j++) {
+      (function (link) {
+        var item = el('button', 'launcher-link focusable', link.label + '  ›');
+        item._activate = function () {
+          if (link.tab === 8) { historyViewTab = 'history'; openSettings(); showSettingsPanel(1, true); }
+          else { activateLauncherTab(link.tab, item); }
+        };
+        links.appendChild(item);
+      })(linkDefs[j]);
+    }
+    host.appendChild(links);
+  }
+
+  function activateLauncherTab(index, source) {
+    if (index < 0 || !TABS[index]) { return; }
+    selectTab(index, false);
+    var target = index === 0 ? (liveRows[0] || liveFocus) : firstIn(pages[TABS[index].page]);
+    var launcher = $('home-launcher');
+    if (target) {
+      if (launcher) { launcher.classList.add('is-hidden'); }
+      setFocus(target);
+    } else {
+      if (launcher) { launcher.classList.remove('is-hidden'); }
+      if (source) { setFocus(source); }
+    }
   }
 
   function buildTabs() {
@@ -1641,6 +1722,8 @@ function portalServiceCall(method, params, done, customTimeout) {
             return;
           }
           selectTab(idx, false);
+          var launcher = $('home-launcher');
+          if (launcher) { launcher.classList.add('is-hidden'); }
           if (idx === 0) {
             var row = liveRows.filter(function (r) { return r._channel === state.channel; })[0];
             if (row) { setFocus(row); }
@@ -1680,6 +1763,8 @@ function portalServiceCall(method, params, done, customTimeout) {
               return true;
             }
             selectTab(idx, false);
+            var launcher = $('home-launcher');
+            if (launcher) { launcher.classList.add('is-hidden'); }
             if (idx === 0) {
               var row = liveRows.filter(function (r) { return r._channel === state.channel; })[0];
               if (row) { setFocus(row); }
@@ -7508,7 +7593,9 @@ function portalServiceCall(method, params, done, customTimeout) {
       selectTab(parseInt(map.tab, 10) || 0, true);
     } else {
       selectTab(0, false);
-      setFocus(liveFocus);
+      var launcher = $('home-launcher');
+      if (launcher) { launcher.classList.remove('is-hidden'); }
+      if (tabEls[0]) { setFocus(tabEls[0]); }
     }
 
     if (screen === 'detail') {

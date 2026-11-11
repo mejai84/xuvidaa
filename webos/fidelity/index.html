@@ -27,9 +27,12 @@
        design_width 1920 / design_width_in_dp 1280  ->  1dp = 1.5px
        ============================================================ -->
   <section id="screen-welcome" class="screen is-active">
-    <div class="welcome-name">Xuper Hydra</div>
+    <div class="welcome-name">TVVIDAA</div>
     <div class="welcome-version">v2.2.2</div>
-    <div class="welcome-loading"><img id="welcome-loading-img" alt="" src="assets/original/welcome/img_welcome_loading1.png"></div>
+    <div class="welcome-loading" role="status" aria-label="Cargando TVVIDAA">
+      <img id="welcome-loading-img" alt="" src="assets/original/welcome/tvvidaa-loader.png">
+      <span class="welcome-loading-track" aria-hidden="true"><span></span></span>
+    </div>
   </section>
 
   <!-- ============================================================
@@ -38,6 +41,8 @@
   <section id="screen-home" class="screen">
     <div id="home-pages" class="home-pages"></div>
     <div id="portal-status" class="portal-status" role="status" aria-live="polite" hidden></div>
+    <div class="home-topbar"><div class="home-brand">TV<span>VIDAA</span></div><div class="home-topbar-label">ENTRETENIMIENTO PARA TODOS</div></div>
+    <div id="home-launcher" class="home-launcher"></div>
     <div class="home-sidebar-bg"></div>
     <div id="home-tabs" class="home-tabs"></div>
     <div id="home-notify" class="home-notify"></div>
