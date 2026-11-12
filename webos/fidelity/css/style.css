@@ -4183,3 +4183,76 @@ div, section, span { outline: none; }
   white-space: nowrap;
   overflow: hidden;
 }
+
+
+/* =============================================================================
+   TVVIDAA contextual search: compatible with Chromium 53 / Hisense VIDAA
+   ============================================================================= */
+#search-native-input {
+  box-sizing: border-box;
+  padding: 0 18px;
+  border: 2px solid rgba(255,255,255,.34);
+  outline: 0;
+  font-family: inherit;
+  font-size: 32px;
+  line-height: normal;
+  color: #fff;
+  background: rgba(255,255,255,.10);
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: text;
+}
+#search-native-input.is-focused,
+#search-native-input:focus {
+  border-color: #78a9ff;
+  background: rgba(54,82,121,.34);
+}
+#search-native-input::-webkit-input-placeholder { color: #c1c9d5; }
+.search-start-hint {
+  position: absolute;
+  left: 0; top: 85px;
+  width: 1120px;
+  color: #b8c5d8;
+  font-size: 34px;
+  line-height: 45px;
+}
+.search-channel-tile {
+  position: absolute;
+  left: 0; top: 0;
+  width: 222px;
+  height: 377px;
+  border: 2px solid rgba(147,170,205,.3);
+  border-radius: 16px;
+  background: #111c2e;
+  color: #fff;
+  overflow: hidden;
+}
+.search-channel-tile.is-focused {
+  border-color: #91baff;
+  background: #1e355a;
+  box-shadow: 0 0 0 4px rgba(129,168,255,.2);
+}
+.search-channel-logo {
+  position: absolute;
+  top: 27px; left: 17px;
+  width: 184px; height: 200px;
+  background-position: center center;
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+.search-channel-name {
+  position: absolute;
+  top: 239px; left: 12px; right: 12px;
+  text-align: center;
+  font-size: 25px;
+  line-height: 34px;
+  max-height: 68px;
+  overflow: hidden;
+}
+.search-channel-play {
+  position: absolute;
+  left: 10px; right: 10px; bottom: 18px;
+  text-align: center;
+  color: #9fc1f5;
+  font-size: 22px;
+}
