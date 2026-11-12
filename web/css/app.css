@@ -241,3 +241,35 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .player-top { top: 9px; left: 9px; right: 9px; }
   .player-actions button { font-size: 11px; }
 }
+
+/* Landscape-first VIDAA catalog. Compact cards and focus-driven navigation. */
+.topbar-brand { display:flex; align-items:center; gap:16px; min-width:0; }
+.menu-toggle { font-size:22px; min-width:48px; }
+.layout { max-width:none; }
+.sidebar { width:76px; flex:0 0 76px; -webkit-flex:0 0 76px; padding:18px 8px; overflow:hidden; transition:width .18s ease, flex-basis .18s ease; }
+.sidebar:hover, .sidebar:focus-within, .sidebar.is-open { width:220px; flex-basis:220px; -webkit-flex-basis:220px; }
+.nav-button { display:flex; align-items:center; gap:12px; height:58px; padding:10px 14px; font-size:17px; }
+.nav-button span:first-child { width:28px; min-width:28px; margin:0; text-align:center; font-size:23px; }
+.nav-label { visibility:hidden; opacity:0; white-space:nowrap; }
+.sidebar:hover .nav-label, .sidebar:focus-within .nav-label, .sidebar.is-open .nav-label { visibility:visible; opacity:1; }
+.content { padding:24px 28px 55px; }
+.catalog { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:14px; margin:0; }
+.focus-card { width:100%; min-width:0; min-height:0; margin:0; }
+.channel-card .cover { height:108px; }
+.channel-card .cover img { padding:12px; }
+.focus-card:not(.channel-card) .cover { height:auto; aspect-ratio:2/3; }
+.focus-card .title { font-size:14px; min-height:36px; margin:8px 9px 3px; }
+.focus-card .subtitle { margin:0 9px 9px; }
+@media (min-width:1500px) { .catalog { grid-template-columns:repeat(8,minmax(0,1fr)); } }
+@media (min-width:1100px) and (max-width:1499px) { .catalog { grid-template-columns:repeat(6,minmax(0,1fr)); } }
+@media (min-width:750px) and (max-width:1099px) { .catalog { grid-template-columns:repeat(5,minmax(0,1fr)); } }
+@media (max-width:749px) {
+  .catalog { grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+  .content { padding:18px 12px 36px; }
+  .sidebar { width:56px; flex-basis:56px; -webkit-flex-basis:56px; padding:12px 4px; }
+  .sidebar:hover,.sidebar:focus-within,.sidebar.is-open { width:176px; flex-basis:176px; -webkit-flex-basis:176px; }
+  .nav-button { padding:8px; }
+  .channel-card .cover { height:80px; }
+}
+@media (max-width:430px) { .catalog { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (prefers-reduced-motion:reduce) { .sidebar { transition:none; } }

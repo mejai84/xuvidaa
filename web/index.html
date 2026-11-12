@@ -44,7 +44,7 @@
 
   <div id="shell" hidden>
     <header class="topbar">
-      <div class="brand"><span>TV</span>VIDAA</div>
+      <div class="topbar-brand"><button id="menuToggle" class="icon-button menu-toggle" type="button" aria-label="Abrir menú de secciones" aria-controls="sectionNav" aria-expanded="false">☰</button><div class="brand"><span>TV</span>VIDAA</div></div>
       <div class="top-actions">
         <span id="connection" class="connection">Conectado</span>
         <label class="profile-box" for="profile"><span>Perfil</span>
@@ -61,10 +61,10 @@
     </header>
 
     <div class="layout">
-      <nav class="sidebar" aria-label="Secciones">
-        <button type="button" data-section="tv" class="nav-button selected"><span aria-hidden="true">▣</span> TV en vivo</button>
-        <button type="button" data-section="movies" class="nav-button"><span aria-hidden="true">▶</span> Películas</button>
-        <button type="button" data-section="series" class="nav-button"><span aria-hidden="true">▤</span> Series</button>
+      <nav class="sidebar" id="sectionNav" aria-label="Secciones">
+        <button type="button" data-section="tv" class="nav-button selected"><span aria-hidden="true">▣</span><span class="nav-label">TV en vivo</span></button>
+        <button type="button" data-section="movies" class="nav-button"><span aria-hidden="true">▶</span><span class="nav-label">Películas</span></button>
+        <button type="button" data-section="series" class="nav-button"><span aria-hidden="true">▤</span><span class="nav-label">Series</span></button>
       </nav>
       <main class="content" id="content" tabindex="-1">
         <div class="page-heading">

@@ -125,6 +125,8 @@
   function changeSection(section) {
     if (!labels[section]) return;
     state.section = section;
+    if($('sectionNav')) $('sectionNav').className='sidebar';
+    if($('menuToggle')) $('menuToggle').setAttribute('aria-expanded','false');
     state.query = '';
     state.category = 'all';
     state.view = 'all';
@@ -848,6 +850,14 @@
   $('clearSearch').addEventListener('click',clearSearch);
   $('search').addEventListener('input',changeQuery);
   $('searchShortcut').addEventListener('click',function(){$('search').focus();});
+  $('menuToggle').addEventListener('click',function(){
+    var nav=$('sectionNav');
+    var open=nav.className.indexOf('is-open')===-1;
+    nav.className='sidebar'+(open?' is-open':'');
+    this.setAttribute('aria-expanded',open?'true':'false');
+    this.setAttribute('aria-label',open?'Cerrar menú de secciones':'Abrir menú de secciones');
+    if(open) { var first=nav.querySelector('[data-section]'); if(first) first.focus(); }
+  });
   $('country').addEventListener('change',function(){
     state.country=this.value||'CO';
     state.category='all';
