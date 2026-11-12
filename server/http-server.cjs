@@ -236,7 +236,7 @@ function createServer(options) {
       if (isProtectedApi && !hasSession(req, sessionSecret)) {
         return json(res, 401, { error: 'Inicia sesión para continuar.' });
       }
-      const mkvMatch = /^\\/api\\/mkv\\/([a-f0-9]{32})\\/(index\\.m3u8|seg_[0-9]{5}\\.ts)$/.exec(decoded);
+      const mkvMatch = /^\/api\/mkv\/([a-f0-9]{32})\/(index\.m3u8|seg_[0-9]{5}\.ts)$/.exec(decoded);
       if (mkvMatch) {
         if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Método no permitido' });
         if (typeof options.mkvHandler !== 'function') return json(res, 404, { error: 'Reproducción MKV no habilitada' });
