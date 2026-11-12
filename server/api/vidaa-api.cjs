@@ -128,7 +128,7 @@ async function handler(req, res) {
     if (method === 'liveChannels') {
       const result = await live.getChannels({
         columnId: String(input.columnId || 'all'),
-        country: /^[A-Z]{2}$|^ALL$/.test(String(input.country||'CO').toUpperCase()) ? String(input.country||'CO').toUpperCase() : 'CO',
+        country: /^(?:[A-Z]{2}|ALL)$/.test(String(input.country || 'ALL').toUpperCase()) ? String(input.country || 'ALL').toUpperCase() : 'ALL',
         pageNum,pageSize,search,onlyWithStreams:true
       });
       return respond(res,200,{channels:(result.channels||[]).map(safeChannel),
