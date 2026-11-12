@@ -296,7 +296,8 @@ function main() {
     accessPassword,
     sessionSecret,
     apiHandler: require('./api/vidaa-api.cjs'),
-    mediaHandler: require('./api/media.cjs')
+    mediaHandler: require('./api/media.cjs'),
+    mkvHandler: require('./api/mkv-hls.cjs').handler
   });
   server.on('error', (error) => {
     console.error(error.code === 'EADDRINUSE' ? 'El puerto ya está ocupado. Elige otro PORT para TVVIDAA.' : 'No se pudo iniciar TVVIDAA.');
