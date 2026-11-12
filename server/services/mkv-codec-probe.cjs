@@ -1,56 +1,65 @@
 'use strict';
-// Probe only a bounded prefix of an already DNS-validated provider stream.
-// Never let ffprobe access provider URLs or follow protocols.
+// Probe a strictly bounded prefix. Provider URL never reaches ffprobe.
+// 4 MiB maximum in memory; probing uses a separate upstream connection from playback.
 const {spawn}=require('node:child_process');
-const {pipeline}=require('node:stream/promises');
-const {Transform}=require('node:stream');
 const {selectMkvPlan}=require('./mkv-remux-policy.cjs');
 const MAX_PROBE_BYTES=4*1024*1024;
 const MAX_RESULT_BYTES=64*1024;
-function probeMkv({source,spawnProcess=spawn,timeoutMs=12000,maxBytes=MAX_PROBE_BYTES}) {
-  if (!source||typeof source.pipe!=='function'||typeof source.destroy!=='function') throw new TypeError('Origen inválido');
-  if (!Number.isSafeInteger(timeoutMs)||timeoutMs<1000||timeoutMs>30000 ||
-      !Number.isSafeInteger(maxBytes)||maxBytes<1024||maxBytes>MAX_PROBE_BYTES) throw new RangeError('Límite inválido');
-  const args=['-v','error','-nostdin','-protocol_whitelist','pipe',
-    '-probesize',String(maxBytes),'-analyzeduration','5000000',
-    '-show_entries','stream=codec_type,codec_name:stream_disposition=attached_pic',
-    '-of','json','-i','pipe:0'];
-  let child;
-  try {child=spawnProcess('ffprobe',args,{shell:false,stdio:['pipe','pipe','ignore'],env:{PATH:'/usr/bin:/bin'}});}
-  catch(err){source.destroy();return Promise.reject(err);}
-  if(!child||!child.stdin||!child.stdout||typeof child.kill!=='function')throw new TypeError('Proceso inválido');
-  let bytes=0,output=0,parts=[],finished=false;
-  const limiter=new Transform({transform(chunk,_encoding,callback){
-    const remaining=maxBytes-bytes;
-    if(remaining<=0){source.unpipe(limiter);source.destroy();this.push(null);return callback();}
-    const part=chunk.subarray(0,remaining);
-    bytes+=part.length;
-    callback(null,part);
-    if(bytes>=maxBytes){source.unpipe(limiter);source.destroy();this.push(null);}
-  }});
-  const timer=setTimeout(()=>{child.kill('SIGKILL');source.destroy(new Error('Tiempo de análisis agotado'));},timeoutMs);
-  timer.unref?.();
-  child.stdout.on('data',chunk=>{
-    output+=chunk.length;
-    if(output>MAX_RESULT_BYTES){child.kill('SIGKILL');return;}
-    parts.push(chunk);
-  });
-  const exit=new Promise((resolve,reject)=>{
-    child.once('error',reject);
-    child.once('close',code=>code===0?resolve():reject(new Error('No se pudieron analizar los códecs')));
-  });
-  const feeding=pipeline(source,limiter,child.stdin).catch(err=>{
-    if(bytes>=maxBytes)return;
-    throw err;
-  });
-  return Promise.all([exit,feeding]).then(()=>{
-    finished=true;
-    const parsed=JSON.parse(Buffer.concat(parts).toString('utf8'));
-    return selectMkvPlan(parsed.streams);
-  }).finally(()=>{
-    clearTimeout(timer);
-    if(!finished)child.kill('SIGKILL');
-    source.destroy();
-  });
+
+async function readPrefix(source,maxBytes) {
+  const chunks=[];let length=0;
+  try {
+    for await(const chunk of source) {
+      const remaining=maxBytes-length;
+      if(remaining<=0)break;
+      const part=chunk.subarray(0,remaining);
+      chunks.push(part);length+=part.length;
+      if(length>=maxBytes)break;
+    }
+    return Buffer.concat(chunks,length);
+  } finally {source.destroy();}
 }
-module.exports={probeMkv};
+async function probeMkv({source,spawnProcess=spawn,timeoutMs=12000,maxBytes=MAX_PROBE_BYTES}) {
+  if(!source||typeof source[Symbol.asyncIterator]!=='function'||typeof source.destroy!=='function')
+    throw new TypeError('Origen inválido');
+  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1000||timeoutMs>30000||
+     !Number.isSafeInteger(maxBytes)||maxBytes<1024||maxBytes>MAX_PROBE_BYTES)
+    throw new RangeError('Límite inválido');
+  let child,timer;
+  try {
+    const prefix=await readPrefix(source,maxBytes);
+    if(!prefix.length)throw new Error('Archivo vacío');
+    const args=['-v','error','-nostdin','-protocol_whitelist','pipe',
+      '-probesize',String(maxBytes),'-analyzeduration','5000000',
+      '-show_entries','stream=codec_type,codec_name:stream_disposition=attached_pic',
+      '-of','json','-i','pipe:0'];
+    child=spawnProcess('ffprobe',args,{shell:false,stdio:['pipe','pipe','ignore'],env:{PATH:'/usr/bin:/bin'}});
+    if(!child||!child.stdin||!child.stdout||typeof child.kill!=='function')
+      throw new TypeError('Proceso inválido');
+    let result='',size=0,failed=false;
+    const exit=new Promise((resolve,reject)=>{
+      child.once('error',reject);
+      child.once('close',code=>code===0&&!failed?resolve():reject(new Error('Análisis de códecs fallido')));
+    });
+    child.stdout.on('data',chunk=>{
+      size+=chunk.length;
+      if(size>MAX_RESULT_BYTES){failed=true;child.kill('SIGKILL');return;}
+      result+=chunk.toString('utf8');
+    });
+    // Keep a rejection handler attached before writing to the subprocess.
+    const writing=new Promise((resolve,reject)=>{
+      child.stdin.once('error',reject);
+      child.stdin.end(prefix,resolve);
+    });
+    timer=setTimeout(()=>{failed=true;child.kill('SIGKILL');},timeoutMs);
+    timer.unref?.();
+    await Promise.all([exit,writing]);
+    const parsed=JSON.parse(result);
+    return selectMkvPlan(parsed.streams);
+  } finally {
+    if(timer)clearTimeout(timer);
+    if(child)try{child.kill('SIGKILL');}catch(_){}
+    source.destroy();
+  }
+}
+module.exports={probeMkv,readPrefix};
