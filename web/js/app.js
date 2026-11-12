@@ -272,13 +272,14 @@
       state.page=page;
       state.more=!!result.hasMore;
       state.total=result.total||0;
-      text('count',state.total+' resultados');
+      text('count',section==='tv' && $('workingOnly').checked ? 'Señales verificadas (revisión progresiva)' : state.total+' resultados');
       var items=section==='tv' ? (result.channels||[]) : (result.items||[]);
+      if (section==='tv' && $('workingOnly').checked) items=items.filter(function(ch){return ch.signalStatus==='available';});
       if (!items.length && page===1) {
         error(section!=='tv' && result.configured===false
           ? 'La biblioteca privada aún no está configurada en el servidor.'
           : state.query ? 'No encontramos coincidencias. Prueba otro nombre.' :
-            'No hay contenido disponible en esta categoría.');
+            section==='tv' && $('workingOnly').checked ? 'Todavía no hay señales verificadas en esta página. Desactiva el filtro para ver todos los canales.' : 'No hay contenido disponible en esta categoría.');
       } else {
         error('');
       }
@@ -303,7 +304,7 @@
     } else { cover.textContent=section==='tv'?'▣':section==='movies'?'▶':'▤'; }
     button.appendChild(cover);
     button.appendChild(make('span','title',item.name||item.title||'Sin título'));
-    button.appendChild(make('span','subtitle',section==='tv'?'EN VIVO':
+    button.appendChild(make('span','subtitle',section==='tv' ? ({available:'● Disponible',restricted:'◐ Restringido',offline:'○ Sin señal',unverified:'◌ Sin verificar'}[item.signalStatus] || 'EN VIVO') :
       section==='series'?((item.seasonCount||0)+' temporadas'):item.year||'PELÍCULA'));
     button.onclick=function () {
       state.lastFocus=button;
@@ -812,6 +813,7 @@
     if(state.screen==='detail')closeDetail();
     changeSection(state.section);
   });
+  $('workingOnly').addEventListener('change',function(){if(state.section==='tv' && state.view==='all')fetchPage(1,false);});
   $('allFilter').addEventListener('click',function(){setView('all');});
   $('favoritesFilter').addEventListener('click',function(){setView('favorites');});
   $('recentFilter').addEventListener('click',function(){setView('recent');});
