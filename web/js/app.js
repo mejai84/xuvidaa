@@ -23,7 +23,7 @@
     section: 'tv', query: '', category: 'all', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
     hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
-    view: 'all', lastFailure: '', retryCount: 0, diagnosticSeq: 0
+    view: 'all', lastFailure: '', retryCount: 0, diagnosticSeq: 0, playbackSeq: 0
   };
   function show(id, visible) { $(id).hidden = !visible; }
   function text(id, value) { $(id).textContent = value || ''; }
@@ -253,7 +253,7 @@
     });
   }
   function addCard(item,section) {
-    var entry=make('div','catalog-entry');
+    var entry=make('div','catalog-item');
     var button=make('button','focus-card'+(section==='tv'?' channel-card':''));
     button.type='button';
     var cover=make('span','cover');
@@ -355,11 +355,10 @@
       return;
     }
     previousScreen=state.screen==='detail'?'detail':'catalog';
+    stopVideo();
     state.screen='player';
     playerKind=kind;
     playerItem={id:item.id,title:item.title||'Video',kind:kind};
-    state.currentChannel=null;
-    stopVideo();
     text('playerTitle',playerItem.title);
     text('playerMessage','Preparando video privado…');
     show('player',true);
@@ -396,6 +395,8 @@
     }
   }
   function stopVideo() {
+    state.playbackSeq++;
+    savePlaybackProgress();
     if (state.streamTimer) { clearTimeout(state.streamTimer); state.streamTimer=null; }
     destroyHls();
     var video=$('video');
@@ -403,6 +404,11 @@
     video.removeAttribute('src');
     try { video.load(); } catch (_) {}
     state.currentChannel=null;
+  }
+  function savePlaybackProgress() {
+    if (!family || !playerItem || playerKind==='tv') return;
+    var video=$('video');
+    family.putProgress(playerKind,playerItem,video.currentTime||0,video.duration||0);
   }
   function playCurrentVideo() {
     var play=$('video').play();
@@ -457,9 +463,10 @@
         useHlsLibrary(source);
       } else {
         var current=state.currentChannel;
+        var seq=state.playbackSeq;
         text('playerMessage','Preparando reproductor HTML5…');
         getHlsLibrary(function(ok) {
-          if(state.screen!=='player'||state.currentChannel!==current)return;
+          if(state.screen!=='player'||state.currentChannel!==current||state.playbackSeq!==seq)return;
           if(!ok){text('playerMessage','El reproductor HLS no está disponible.');return;}
           text('playerMessage','');
           useHlsLibrary(source);
@@ -484,20 +491,102 @@
     });
   }
   function openLive(ch) {
+    stopVideo();
+    playerItem=null;
+    playerKind='tv';
+    previousScreen='catalog';
+    state.retryCount=0;
     state.screen='player';
     state.currentChannel=ch;
+    rememberWatched('tv',ch);
     text('playerTitle',ch.name||'TV en vivo');
     text('playerMessage','Conectando con la señal…');
+    show('prevChannel',true);
+    show('nextChannel',true);
+    show('retryChannel',true);
     show('player',true);
     playResolved(ch);
     $('playerBack').focus();
   }
+  function nextLive(direction) {
+    if (state.screen!=='player' || !state.currentChannel) return;
+    var list=sectionItems.tv || [];
+    if (family && state.view==='favorites') list=family.favorites('tv').map(function (x) {
+      return {id:x.id,channelCode:x.id,name:x.title};
+    });
+    if (!list.length) {text('playerMessage','No hay canales para cambiar.');return;}
+    var index=-1,current=state.currentChannel.channelCode||state.currentChannel.id;
+    for(var i=0;i<list.length;i++) if((list[i].channelCode||list[i].id)===current){index=i;break;}
+    var next=list[(index+(direction>0?1:list.length-1)+list.length)%list.length];
+    if (next) openLive(next);
+  }
+  function retryPlayback() {
+    if (state.screen!=='player') return;
+    state.retryCount=0;
+    if (playerItem) {
+      stopVideo();
+      resolveVodPlayback();
+    } else if (state.currentChannel) {
+      var ch=state.currentChannel;
+      stopVideo();
+      state.currentChannel=ch;
+      playResolved(ch);
+    }
+  }
   function closePlayer() {
     stopVideo();
+    playerItem=null;
     show('player',false);
-    state.screen='catalog';
-    if (state.lastFocus && document.contains(state.lastFocus)) state.lastFocus.focus();
-    else $('search').focus();
+    if (previousScreen==='detail' && !$('detail').hidden) {
+      state.screen='detail';
+      if (state.lastFocus && document.contains(state.lastFocus)) state.lastFocus.focus();
+      else $('detailBack').focus();
+    } else {
+      state.screen='catalog';
+      if (state.lastFocus && document.contains(state.lastFocus)) state.lastFocus.focus();
+      else $('search').focus();
+    }
+  }
+  function diagnosticRow(label,value) {
+    var row=make('div','diagnostic-row');
+    row.appendChild(make('strong',null,label));
+    row.appendChild(make('span',null,value));
+    $('diagnosticsList').appendChild(row);
+  }
+  function refreshDiagnostics() {
+    var serial=++state.diagnosticSeq;
+    $('diagnosticsList').textContent='';
+    diagnosticRow('Conexión','Comprobando…');
+    api('ping',{},function(err,body) {
+      if(state.screen!=='diagnostics' || state.diagnosticSeq!==serial)return;
+      diagnosticRow('Servidor',err?'Sin respuesta':body.service||'Disponible');
+    });
+    api('m3uStatus',{},function(err,body){
+      if(state.screen!=='diagnostics' || state.diagnosticSeq!==serial)return;
+      diagnosticRow('Biblioteca privada',err?'No se pudo comprobar':body.configured?'Configurada':'Sin configurar');
+    });
+    api('liveChannels',{pageNum:1,pageSize:1},function(err,body){
+      if(state.screen!=='diagnostics' || state.diagnosticSeq!==serial)return;
+      diagnosticRow('Canales IPTV',err?'Servicio no disponible':(body.total||0)+' con señal registrada');
+    });
+    diagnosticRow('Reproducción HLS', $('video').canPlayType('application/vnd.apple.mpegurl')?
+      'HLS nativo disponible':'Puede requerir HLS.js');
+    diagnosticRow('Almacenamiento local',family?'Perfiles y favoritos activos':'No disponible');
+    diagnosticRow('Último error',state.lastFailure||'Ninguno registrado');
+  }
+  function openDiagnostics() {
+    if(state.screen==='player')closePlayer();
+    previousScreen=state.screen;
+    state.screen='diagnostics';
+    show('diagnostics',true);
+    refreshDiagnostics();
+    $('diagnosticsBack').focus();
+  }
+  function closeDiagnostics() {
+    ++state.diagnosticSeq;
+    show('diagnostics',false);
+    state.screen=previousScreen==='detail'?'detail':'catalog';
+    $('diagnosticsButton').focus();
   }
   function navigate(dir) {
     var current=document.activeElement;
@@ -531,6 +620,7 @@
       e.key==='GoBack'||e.key==='BrowserBack'||e.key==='Escape';
     if(back) {
       if(state.screen==='player') closePlayer();
+      else if(state.screen==='diagnostics')closeDiagnostics();
       else if(state.screen==='detail')closeDetail();
       else if(editing && active.blur)active.blur();
       else if(state.screen==='catalog') {
@@ -557,6 +647,50 @@
     }
   }
   $('loginForm').addEventListener('submit',login);
+  $('profile').addEventListener('change',function(){
+    if(!family || !family.pickProfile(this.value))return;
+    if(state.screen==='player')closePlayer();
+    if(state.screen==='detail')closeDetail();
+    changeSection(state.section);
+  });
+  $('allFilter').addEventListener('click',function(){setView('all');});
+  $('favoritesFilter').addEventListener('click',function(){setView('favorites');});
+  $('recentFilter').addEventListener('click',function(){setView('recent');});
+  $('continueFilter').addEventListener('click',function(){setView('continue');});
+  $('lastChannel').addEventListener('click',function(){
+    var last=family&&family.lastChannel();
+    if(last)openLive({id:last.id,channelCode:last.id,name:last.title});
+  });
+  $('detailFavorite').addEventListener('click',function(){
+    if(!family || !detailItem)return;
+    var on=family.toggleFavorite(state.section,detailItem);
+    text('detailFavorite',on?'★ Quitar de favoritos':'☆ Guardar en favoritos');
+    $('detailFavorite').setAttribute('aria-pressed',on?'true':'false');
+  });
+  $('detailPlay').addEventListener('click',function(){
+    if(detailItem)playVod(detailItem,'movies');
+  });
+  $('prevChannel').addEventListener('click',function(){nextLive(-1);});
+  $('nextChannel').addEventListener('click',function(){nextLive(1);});
+  $('retryChannel').addEventListener('click',retryPlayback);
+  $('diagnosticsButton').addEventListener('click',openDiagnostics);
+  $('diagnosticsBack').addEventListener('click',closeDiagnostics);
+  $('diagnosticsRefresh').addEventListener('click',refreshDiagnostics);
+  $('video').addEventListener('timeupdate',function(){
+    if(state.screen==='player' && playerItem && Date.now()-lastProgressSave>10000) {
+      lastProgressSave=Date.now();savePlaybackProgress();
+    }
+  });
+  $('video').addEventListener('loadedmetadata',function(){
+    if(!playerItem||!family)return;
+    var previous=family.progress().filter(function(p){return p.id===playerItem.id;})[0];
+    if(previous && previous.position>10 && previous.position<$('video').duration-30){
+      try{$('video').currentTime=previous.position;}catch(_){}
+    }
+  });
+  $('video').addEventListener('ended',function(){
+    if(family && playerItem)family.putProgress(playerKind,playerItem,0,100);
+  });
   $('logout').addEventListener('click',logout);
   $('clearSearch').addEventListener('click',clearSearch);
   $('search').addEventListener('input',changeQuery);
@@ -575,7 +709,10 @@
   }
   document.addEventListener('keydown',handleRemote,false);
   $('video').addEventListener('error',function(){
-    if(state.screen==='player')text('playerMessage','La señal no pudo reproducirse en este dispositivo.');
+    if(state.screen==='player') {
+      state.lastFailure='El video no pudo reproducirse en este dispositivo.';
+      text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
+    }
   });
   document.addEventListener('visibilitychange',function(){
     if(document.hidden && state.screen==='player')$('video').pause();
