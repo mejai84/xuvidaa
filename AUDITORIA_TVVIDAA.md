@@ -23,11 +23,11 @@ El árbol revisado contenía 265 archivos: 199 en `webos/`, 27 en `tools/`, 7 en
 Se creó `archive/xuper-webos-20261111` apuntando al commit base, antes de eliminar los recursos antiguos de la rama de trabajo. La historia de Git sigue disponible para rollback.
 
 ## Deuda técnica y riesgos (no confundir con completado)
-1. **VOD privado**: `/api/resolve` sigue en HTTP 501; faltan tokens sin credenciales, índice tras reinicio y pruebas de Range/seek.
+1. **VOD privado**: se implementó `resolve` con IDs internos, referencias opacas, reinicio desde caché y pruebas simuladas de `Range`/206 y HLS. **Pendiente:** streaming real, codecs/audio del televisor y cualquier origen HTTP que no ofrezca HTTPS.
 2. **Reproducción VIDAA real**: compatibilidad HLS/códecs/audio y controles debe verificarse físicamente en el Hisense.
 3. **M3U en Dokploy**: no hay constancia de variables reales correctamente pasadas al contenedor. No guardar ni imprimir credenciales en comandos.
 4. **Migración de secretos**: los alias `XUPER_*` permanecen temporalmente en configuración para evitar cortar la instalación actual. Rotar los secretos previamente expuestos y luego retirar los alias.
-5. **UI**: la búsqueda se limita a la sección activa; faltan favoritos, continuar viendo y una pantalla nativa de ajustes/diagnóstico. Los episodios son visibles, su reproducción VOD aún no está habilitada.
+5. **UI**: añadidos perfiles locales, favoritos, recientes, continuar viendo, último canal, cambio de canales y pantalla de diagnóstico. Pendientes: guía EPG fiable, PIN parental, acceso por código desde móvil y recomendaciones avanzadas; no se simulan datos inexistentes.
 6. **Producción**: el contenedor anterior seguía mostrando `Xuper HTTP listo`, con gestión Compose externa. No actualizar ni renombrar servicios a ciegas: inspeccionar `/opt/xuvidaa-tv` y hacer despliegue con rollback.
 
 ## Criterios de aceptación
