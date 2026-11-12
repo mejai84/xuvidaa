@@ -62,6 +62,23 @@ test('Parser: M3U válido y EXTINF con múltiples atributos', () => {
   assert.equal(parsed.stats.duplicatesCount, 1);
 });
 
+test('Parser: guarda deportes con ruta relativa y excluye la categoría adulta', () => {
+  const provider = new M3uProvider({baseUrl:'https://provider.example',username:'user',password:'pass'});
+  const catalog = provider.parseM3u(`#EXTM3U
+#EXTINF:-1 group-title="Deportes",ESPN
+https://provider.example/live/user/pass/101.ts
+#EXTINF:-1 group-title="Fútbol",LaLiga Inside
+https://provider.example/live/user/pass/102.m3u8
+#EXTINF:-1 group-title="Adult HD",Canal Adulto
+https://provider.example/live/user/pass/103.m3u8
+`);
+  assert.equal(catalog.liveChannels.length,2);
+  assert.deepEqual(catalog.liveChannels.map(channel=>channel.category),['Deportes','Deportes']);
+  assert.deepEqual(catalog.liveChannels.map(channel=>channel.hasStream),[true,true]);
+  assert.ok(catalog.liveChannels.every(channel=>/^priv-[a-f0-9]{16}$/.test(channel.id)));
+  assert.doesNotMatch(JSON.stringify(catalog.liveChannels),/provider\.example|\/live\/user\/pass\//);
+});
+
 test('Parser: atributos faltantes y en diferente orden', () => {
   const lineNoTvg = '#EXTINF:-1,Película Simple (2020)';
   const res1 = parseExtInfLine(lineNoTvg);

@@ -386,6 +386,8 @@ test('12. caché válida en disco se reutiliza sin llamar a la red', async () =>
     categories: [{ id: 'all', name: 'Todos' }],
     channels: [{ id: 'CachedChannel.co', channelCode: 'CachedChannel.co', name: 'Canal en Caché', country: 'CO', hasStream: true, streamUrl: 'https://test/live.m3u8' }]
   };
+  cachedData.countries = [{code:'CO',name:'Colombia',count:1},{code:'ES',name:'España',count:1}];
+  cachedData.channels.push({id:'CachedChannel.es',channelCode:'CachedChannel.es',name:'Canal en España',country:'ES',hasStream:true,streamUrl:'https://test-es/live.m3u8'});
   fs.writeFileSync(path.join(tmpDir, 'iptv-org-co.json'), JSON.stringify(cachedData));
 
   let networkCalls = 0;
@@ -463,4 +465,26 @@ test('15. fallback al último catálogo válido ante fallo de red', async () => 
   assert.equal(result.channels.length, 1);
   assert.equal(result.channels[0].name, 'Canal Resiliente');
   assert.equal(result.stale, true);
+});
+
+test('legacy country-only IPTV cache is refreshed before international queries',async()=>{
+  const tmpDir=fs.mkdtempSync(path.join(os.tmpdir(),'iptv-legacy-country-cache-'));
+  fs.writeFileSync(path.join(tmpDir,'iptv-org-co.json'),JSON.stringify({
+    fetchedAt:Date.now(),country:'CO',categories:[{id:'all',name:'Todos'}],
+    channels:[{id:'CachedChannel.co',name:'Canal Colombia cacheado',country:'CO',hasStream:true,streamUrl:'https://co.example/live.m3u8'}]
+  }));
+  const data=createFixtureData();
+  const fetch=createMockFetcher({
+    'https://iptv-org.github.io/api/channels.json':data.channels,
+    'https://iptv-org.github.io/api/streams.json':data.streams,
+    'https://iptv-org.github.io/api/logos.json':data.logos,
+    'https://iptv-org.github.io/api/categories.json':data.categories,
+    'https://iptv-org.github.io/api/countries.json':data.countries
+  });
+  let networkCalls=0;
+  const provider=new IptvOrgProvider({cacheDir:tmpDir,fetchJson:async url=>{networkCalls++;return fetch(url);}});
+  const result=await provider.getChannels({country:'ES',pageSize:50});
+  assert.ok(networkCalls>0,'La caché antigua no debe evitar la carga del catálogo internacional');
+  assert.ok(result.channels.some(channel=>channel.id==='TVEspagna.es'));
+  assert.ok(result.total>0);
 });

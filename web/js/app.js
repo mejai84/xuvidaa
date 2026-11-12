@@ -20,7 +20,7 @@
   var lastProgressSave = 0;
   var previousScreen = 'catalog';
   var state = {
-    section: 'tv', query: '', category: 'all', country: 'CO', page: 0, more: false, total: 0,
+    section: 'tv', query: '', category: 'all', country: 'ALL', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
     hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
     view: 'all', lastFailure: '', retryCount: 0, liveSourceIndex: 0, liveSourceCount: 1, liveWatchdog: null, liveLastTime: -1, liveLastProgress: 0, liveStarted: false, diagnosticSeq: 0, playbackSeq: 0
@@ -256,7 +256,7 @@
       (section==='tv'?'canales':section==='movies'?'películas':'series') + '…');
     error(append ? 'Cargando más resultados…' : '');
     var input = {pageNum:page,pageSize:24,search:state.query};
-    if (section==='tv') { input.columnId=state.category; input.country=state.country; }
+    if (section==='tv') { input.columnId=state.category; input.country=state.country; input.workingOnly=!!$('workingOnly').checked; }
     else { input.category=state.category; }
     api(endpoints[section],input,function(err,result) {
       if (id!==state.requestId || section!==state.section || state.screen!=='catalog') return;
@@ -272,16 +272,21 @@
       state.page=page;
       state.more=!!result.hasMore;
       state.total=result.total||0;
-      text('count',state.total+' resultados');
+      text('count',section==='tv' && $('workingOnly').checked ? 'Señales verificadas (revisión progresiva)' : state.total+' resultados');
       var items=section==='tv' ? (result.channels||[]) : (result.items||[]);
+      if (section==='tv' && $('workingOnly').checked) items=items.filter(function(ch){return ch.signalStatus==='available';});
+      if (section==='tv' && $('workingOnly').checked && result.healthPending) {
+        window.setTimeout(function(){if(id===state.requestId && state.screen==='catalog')fetchPage(page,false);},3500);
+      }
       if (!items.length && page===1) {
         error(section!=='tv' && result.configured===false
           ? 'La biblioteca privada aún no está configurada en el servidor.'
           : state.query ? 'No encontramos coincidencias. Prueba otro nombre.' :
-            'No hay contenido disponible en esta categoría.');
+            section==='tv' && $('workingOnly').checked ? 'Todavía no hay señales verificadas en esta página. Desactiva el filtro para ver todos los canales.' : 'No hay contenido disponible en esta categoría.');
       } else {
         error('');
       }
+      if(section==='tv' && $('workingOnly').checked && result.healthPending) error('Verificando señales de esta página…');
       if (!append) sectionItems[section]=items.slice();
       else sectionItems[section]=sectionItems[section].concat(items);
       for (var i=0;i<items.length;i++) addCard(items[i],section);
@@ -303,7 +308,7 @@
     } else { cover.textContent=section==='tv'?'▣':section==='movies'?'▶':'▤'; }
     button.appendChild(cover);
     button.appendChild(make('span','title',item.name||item.title||'Sin título'));
-    button.appendChild(make('span','subtitle',section==='tv'?'EN VIVO':
+    button.appendChild(make('span','subtitle',section==='tv' ? ({available:'● Disponible',restricted:'◐ Restringido',offline:'○ Sin señal',unverified:'◌ Sin verificar'}[item.signalStatus] || 'EN VIVO') :
       section==='series'?((item.seasonCount||0)+' temporadas'):item.year||'PELÍCULA'));
     button.onclick=function () {
       state.lastFocus=button;
@@ -812,6 +817,7 @@
     if(state.screen==='detail')closeDetail();
     changeSection(state.section);
   });
+  $('workingOnly').addEventListener('change',function(){if(state.section==='tv' && state.view==='all')fetchPage(1,false);});
   $('allFilter').addEventListener('click',function(){setView('all');});
   $('favoritesFilter').addEventListener('click',function(){setView('favorites');});
   $('recentFilter').addEventListener('click',function(){setView('recent');});
@@ -874,7 +880,7 @@
     if(open) { var first=nav.querySelector('[data-section]'); if(first) first.focus(); }
   });
   $('country').addEventListener('change',function(){
-    state.country=this.value||'CO';
+    state.country=this.value||'ALL';
     state.category='all';
     $('category').value='all';
     fetchPage(1,false);
