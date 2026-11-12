@@ -23,7 +23,7 @@
     section: 'tv', query: '', category: 'all', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
     hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
-    view: 'all', lastFailure: '', retryCount: 0, liveSourceIndex: 0, liveSourceCount: 1, diagnosticSeq: 0, playbackSeq: 0
+    view: 'all', lastFailure: '', retryCount: 0, liveSourceIndex: 0, liveSourceCount: 1, liveWatchdog: null, liveLastTime: -1, liveLastProgress: 0, liveStarted: false, diagnosticSeq: 0, playbackSeq: 0
   };
   function show(id, visible) { $(id).hidden = !visible; }
   function text(id, value) { $(id).textContent = value || ''; }
@@ -411,6 +411,7 @@
     }
   }
   function stopVideo() {
+    stopLiveWatchdog();
     state.playbackSeq++;
     savePlaybackProgress();
     if (state.streamTimer) { clearTimeout(state.streamTimer); state.streamTimer=null; }
@@ -496,9 +497,32 @@
       playCurrentVideo();
     }
   }
+  function stopLiveWatchdog() {
+    if(state.liveWatchdog){clearInterval(state.liveWatchdog);state.liveWatchdog=null;}
+    state.liveStarted=false;
+    state.liveLastTime=-1;
+    state.liveLastProgress=0;
+  }
+  function startLiveWatchdog() {
+    stopLiveWatchdog();
+    state.liveLastProgress=Date.now();
+    state.liveWatchdog=setInterval(function(){
+      if(state.screen!=='player'||playerKind!=='tv'||!state.currentChannel)return;
+      var video=$('video');
+      if(document.hidden || video.paused || video.ended || !state.liveStarted)return;
+      if(video.currentTime>state.liveLastTime+0.15){
+        state.liveLastTime=video.currentTime;
+        state.liveLastProgress=Date.now();
+      } else if(Date.now()-state.liveLastProgress>25000){
+        stopLiveWatchdog();
+        tryNextLiveSource('La transmisión no avanza.');
+      }
+    },5000);
+  }
   function tryNextLiveSource(reason) {
     if(state.screen!=='player' || playerKind!=='tv' || !state.currentChannel)return;
     if(state.liveSourceIndex+1 < state.liveSourceCount) {
+      stopLiveWatchdog();
       state.liveSourceIndex++;
       state.retryCount=0;
       if(state.streamTimer) { clearTimeout(state.streamTimer); state.streamTimer=null; }
@@ -507,6 +531,7 @@
       text('playerMessage',reason+' Probando señal alternativa '+(state.liveSourceIndex+1)+'/'+state.liveSourceCount+'…');
       playResolved(state.currentChannel);
     } else {
+      stopLiveWatchdog();
       state.lastFailure=reason+' No hay más señales compatibles disponibles.';
       text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
     }
@@ -528,13 +553,11 @@
       }
       state.retryCount=0;
       state.liveSourceCount=Number(stream.sourceCount)||1;
+      startLiveWatchdog();
       text('playerMessage','');
       attachMedia(stream);
-      // A TV channel is live and tokens expire; obtain a fresh reference periodically.
-      if (state.streamTimer) clearTimeout(state.streamTimer);
-      state.streamTimer=setTimeout(function(){
-        if (state.screen==='player' && state.currentChannel===ch) playResolved(ch);
-      },12*60*1000);
+      // Do not reconnect an active HLS player on a timer: it disrupts playback.
+      // Re-resolve only after a real media error, stall or explicit retry.
     });
   }
   function openLive(ch) {
@@ -771,7 +794,18 @@
   $('diagnosticsButton').addEventListener('click',openDiagnostics);
   $('diagnosticsBack').addEventListener('click',closeDiagnostics);
   $('diagnosticsRefresh').addEventListener('click',refreshDiagnostics);
+  $('video').addEventListener('playing',function(){
+    if(state.screen==='player' && playerKind==='tv'){
+      state.liveStarted=true;
+      state.liveLastProgress=Date.now();
+      state.liveLastTime=$('video').currentTime;
+    }
+  });
   $('video').addEventListener('timeupdate',function(){
+    if(state.screen==='player' && playerKind==='tv' && state.liveStarted && $('video').currentTime>state.liveLastTime+0.15){
+      state.liveLastTime=$('video').currentTime;
+      state.liveLastProgress=Date.now();
+    }
     if(state.screen==='player' && playerItem && Date.now()-lastProgressSave>10000) {
       lastProgressSave=Date.now();savePlaybackProgress();
     }
