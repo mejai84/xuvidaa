@@ -4,7 +4,7 @@
 // the server: only opaque AES-GCM references are sent to web/VIDAA clients.
 const https = require('node:https');
 const http = require('node:http');
-const {permittedMediaOrigin} = require('./lib/vod-origin-policy.cjs');
+const {permittedMediaOrigin,permittedLiveOrigin} = require('./lib/vod-origin-policy.cjs');
 const dns = require('node:dns');
 const net = require('node:net');
 const tokenCodec = require('./lib/media-token.js');
@@ -32,11 +32,11 @@ function publicIPv4(address) {
       (a === 203 && b === 0 && c === 113)) return false;
   return true;
 }
-function validateUrl(raw, hosts) {
+function validateUrl(raw, hosts, source) {
   try {
     const uri = new URL(raw);
     const host = uri.hostname.toLowerCase();
-    if (!permittedMediaOrigin(uri) || net.isIP(host) || !host.includes('.') ||
+    if (!(source === 'live' ? permittedLiveOrigin(uri) : permittedMediaOrigin(uri)) || net.isIP(host) || !host.includes('.') ||
         host.endsWith('.') || !Array.isArray(hosts) || !hosts.includes(host)) return null;
     return uri;
   } catch (_) { return null; }
@@ -74,7 +74,7 @@ function createHandler(deps) {
     }
     const entry = registry.lookup(token);
     if (!entry) return error(res, 410, 'Referencia multimedia no disponible');
-    const url = validateUrl(entry.url, entry.hosts);
+    const url = validateUrl(entry.url, entry.hosts, entry.source);
     if (!url) return error(res, 403, 'Origen multimedia no permitido');
     if (req.headers.range && !RANGE.test(String(req.headers.range))) {
       return error(res, 416, 'Rango inválido');
@@ -87,11 +87,11 @@ function createHandler(deps) {
     } catch (_) { return error(res, 503, 'Dominio público no configurado'); }
 
     function reference(source) {
-      const child = validateUrl(new URL(source, url).toString(), entry.hosts);
+      const child = validateUrl(new URL(source, url).toString(), entry.hosts, entry.source);
       if (!child) throw new Error('Host de segmento no permitido');
       const mimetype = /\.m3u8$/i.test(child.pathname) ? 'application/vnd.apple.mpegurl' : 'application/octet-stream';
       const next = registry.register({
-        url:child.toString(),hosts:entry.hosts,
+        url:child.toString(),hosts:entry.hosts,source:entry.source,
         mime:mimetype,headers:entry.headers||{},duration:entry.duration||0
       },entry.exp);
       if (!next) throw new Error('No se pudo registrar segmento');
