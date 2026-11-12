@@ -53,6 +53,7 @@
      XMLHttpRequest is used deliberately: it works on Chromium 53, where
      fetch/async functions are not a safe webOS 4 baseline. */
   var vodApi = window.XUPERTV_API || {};
+  var contextualSearch = window.TVVIDAASearch || null;
   /* Desktop harness override: ?service=http://127.0.0.1:8910 */
   var devServiceParam = /[?&]service=([^&]+)/.exec(window.location.search || '');
   if (devServiceParam) { vodApi.devServiceUrl = decodeURIComponent(devServiceParam[1]); }
@@ -876,6 +877,12 @@ function portalServiceCall(method, params, done, customTimeout) {
     infobar: true,
     infoTimer: null,
     searchQuery: '',
+    searchScope: 'tv',
+    searchLoading: false,
+    searchError: '',
+    searchRemotePage: 0,
+    searchRemoteHasMore: false,
+    searchRemoteBusy: false,
     searchNumeric: false,
     searchSeq: 0,
     searchFocus: null,
@@ -1274,6 +1281,30 @@ function portalServiceCall(method, params, done, customTimeout) {
     var handled = true;
 
     /* Back buttons */
+    /* Native VIDAA keyboard must receive characters and Backspace itself. */
+    if (state.screen === 'search' && searchInput && document.activeElement === searchInput) {
+      if (k === 8 || key === 'Backspace') { if (e.stopPropagation) { e.stopPropagation(); } return; }
+      if (k === 13 || key === 'Enter') {
+        searchInput.blur();
+        setFocus(searchInput, true);
+        if (e.preventDefault) { e.preventDefault(); }
+        return;
+      }
+      if (k === 37 || k === 38 || k === 39 || k === 40) {
+        searchInput.blur();
+        setFocus(searchInput, true);
+        moveFocus(k === 37 ? 'left' : k === 38 ? 'up' : k === 39 ? 'right' : 'down');
+        if (e.preventDefault) { e.preventDefault(); }
+        return;
+      }
+      if (k === 461 || k === 27 || key === 'Back' || key === 'GoBack' || key === 'Escape') {
+        searchInput.blur();
+        back();
+        if (e.preventDefault) { e.preventDefault(); }
+        return;
+      }
+      return;
+    }
     var isBack = (k === 461 || k === 27 || k === 8 || key === 'Back' || key === 'GoBack' || key === 'Escape');
     if (isBack) {
       if (state.categoryPickerOpen) {
@@ -3320,8 +3351,16 @@ function portalServiceCall(method, params, done, customTimeout) {
     if (searchResults) { searchResults.classList.add('scrollable'); }
 
     /* --- keyboard panel (layout_search_keybord_full_uni) --- */
-    searchInput = el('div', 'kb-edit focusable');
-    searchInput._activate = function () { /* edit field */ };
+    searchInput = el('input', 'kb-edit focusable');
+    searchInput.id = 'search-native-input';
+    searchInput.type = 'text';
+    searchInput.maxLength = 120;
+    searchInput.autocomplete = 'off';
+    searchInput.spellcheck = false;
+    searchInput._activate = function () { setFocus(searchInput, true); searchInput.focus(); };
+    searchInput.addEventListener('input', function () {
+      setSearchQuery(searchInput.value);
+    }, false);
     searchKeyboard.appendChild(searchInput);
 
     var actions = el('div', 'kb-actions');
@@ -3376,11 +3415,17 @@ function portalServiceCall(method, params, done, customTimeout) {
       searchKeyboard.appendChild(row);
     }
 
-    var feedback = el('div', 'kb-feedback focusable', 'Feedback');
-    feedback._activate = function () { /* feedback form not reconstructed */ };
+    var feedback = el('div', 'kb-feedback focusable', 'Volver');
+    feedback._activate = function () { back(); };
     searchKeyboard.appendChild(feedback);
 
-    /* --- hot search grid (observed "Búsqueda popular", 10 portrait cells) --- */
+    var heading = searchHot.querySelector('.search-hot-title');
+    if (heading) {
+      heading.textContent = state.searchScope === 'tv' ? 'Buscar canales' :
+        state.searchScope === 'series' ? 'Buscar series' : 'Buscar películas';
+    }
+    var unusedRefresh = searchHot.querySelector('.search-hot-refresh');
+    if (unusedRefresh) { unusedRefresh.style.display = 'none'; }
     renderPopularSearch();
 
     searchResults.classList.remove('is-active');
@@ -3397,111 +3442,172 @@ function portalServiceCall(method, params, done, customTimeout) {
     return cell;
   }
 
-  function openSearch() {
-    if (!searchKeyboard) { buildSearch(); }
-    showScreen('search');
-    if (!state.searchQuery) { renderPopularSearch(); }
-    setFocus(searchInput);
+  function makeChannelSearchCell(ch, index) {
+    var cell = el('div', 'search-cell search-channel-cell');
+    abs(cell, (index % 5) * 246, Math.floor(index / 5) * 437, 246, 437);
+    var tile = el('div', 'search-channel-tile focusable');
+    var logo = el('div', 'search-channel-logo');
+    if (ch.logo) { logo.style.backgroundImage = 'url(' + ch.logo + ')'; }
+    tile.appendChild(logo);
+    tile.appendChild(el('div', 'search-channel-name', ch.name || 'Canal'));
+    tile.appendChild(el('div', 'search-channel-play', 'OK · Ver canal'));
+    tile._activate = function () {
+      var indexFound = -1;
+      var code = String(ch.channelCode || ch.id || '');
+      for (var i = 0; i < CHANNELS.length; i++) {
+        if (String(CHANNELS[i].channelCode || CHANNELS[i].id || '') === code) { indexFound = i; break; }
+      }
+      if (indexFound < 0) {
+        CHANNELS.push(ch);
+        indexFound = CHANNELS.length - 1;
+        renderLiveRows(false);
+        renderPlayerChannels();
+      }
+      setChannel(indexFound, true);
+      openPlayer('live');
+    };
+    cell.appendChild(tile);
+    return cell;
   }
 
-  function popularSearchItems() {
-    var featured = allVodFor('destacado');
-    var out = featured && featured.length ? featured.slice(0, 10) : [];
-    if (!out.length) { out = hotSearches(); }
-    return out;
+  function openSearch() {
+    if (!contextualSearch) { return; }
+    var tab = TABS[state.tab] || TABS[0];
+    state.searchScope = contextualSearch.scopeForPage(tab.page);
+    if (state.searchTimer) { clearTimeout(state.searchTimer); state.searchTimer = null; }
+    ++state.searchSeq;
+    state.searchQuery = '';
+    state.searchMatches = [];
+    state.searchRemotePage = 0;
+    state.searchRemoteHasMore = false;
+    state.searchRemoteBusy = false;
+    state.searchError = '';
+    if (!searchKeyboard) { buildSearch(); }
+    else { clearSearchState(); buildSearch(); }
+    showScreen('search');
+    renderPopularSearch();
+    setFocus(searchInput);
   }
 
   function renderPopularSearch() {
     if (!searchHotGrid || state.searchQuery) { return; }
     clear(searchHotGrid);
-    var hotItems = popularSearchItems();
-    for (var h = 0; h < hotItems.length; h++) {
-      searchHotGrid.appendChild(makeSearchCell(hotItems[h], h));
+    var pool = state.searchScope === 'tv' ? CHANNELS : VOD;
+    var count = 0;
+    for (var i = 0; i < pool.length && count < 10; i++) {
+      if (state.searchScope === 'series' && !isSeriesItem(pool[i])) { continue; }
+      if (state.searchScope === 'movies' && isSeriesItem(pool[i])) { continue; }
+      searchHotGrid.appendChild(state.searchScope === 'tv' ?
+        makeChannelSearchCell(pool[i], count) : makeSearchCell(pool[i], count));
+      count++;
+    }
+    var total = searchHot.querySelector('.search-hot-total');
+    if (total) { total.textContent = count ? 'Sugerencias' : ''; }
+    if (!count) {
+      searchHotGrid.appendChild(el('div', 'search-start-hint',
+        state.searchScope === 'tv' ? 'Escribe el nombre de un canal.' :
+        state.searchScope === 'series' ? 'Escribe el nombre de una serie.' :
+        'Escribe el nombre de una película.'));
     }
     schedulePosterMemoryPass();
   }
 
   function updateSearchInput() {
     if (!searchInput) { return; }
-    if (state.searchQuery) {
-      searchInput.textContent = state.searchQuery;
-      searchInput.classList.remove('is-placeholder');
-    } else {
-      searchInput.textContent = 'Buscar películas, series, directores y actores.';
-      searchInput.classList.add('is-placeholder');
-    }
+    searchInput.placeholder = state.searchScope === 'tv' ? 'Buscar canales…' :
+      state.searchScope === 'series' ? 'Buscar series…' : 'Buscar películas…';
+    if (searchInput.value !== state.searchQuery) { searchInput.value = state.searchQuery; }
   }
 
-  function setSearchQuery(q) {
-    state.searchQuery = q;
+  function setSearchQuery(value) {
+    state.searchQuery = String(value || '').slice(0, 120);
     updateSearchInput();
     runSearch();
   }
 
   function clearSearchState() {
+    ++state.searchSeq;
     if (state.searchTimer) { clearTimeout(state.searchTimer); state.searchTimer = null; }
     state.searchQuery = '';
-    updateSearchInput();
-    if (searchResultGrid) { clear(searchResultGrid); }
     state.searchMatches = [];
     state.searchPage = 0;
+    state.searchRemotePage = 0;
+    state.searchRemoteHasMore = false;
+    state.searchRemoteBusy = false;
+    state.searchLoading = false;
+    state.searchError = '';
+    updateSearchInput();
+    if (searchResultGrid) { clear(searchResultGrid); }
     if (searchNav) { searchNav.textContent = ''; }
     if (searchResults) { searchResults.classList.remove('is-active'); }
     if (searchEmpty) { searchEmpty.classList.remove('is-active'); }
     if (searchHot) { searchHot.classList.remove('is-hidden'); }
+    renderPopularSearch();
   }
 
   function runSearch() {
-    var rawQ = state.searchQuery || '';
-    var q = norm(rawQ.trim());
-    if (!q) {
-      clearSearchState();
+    if (!contextualSearch) { return; }
+    var raw = String(state.searchQuery || '').replace(/^\s+|\s+$/g, '');
+    if (state.searchTimer) { clearTimeout(state.searchTimer); state.searchTimer = null; }
+    var seq = ++state.searchSeq;
+    if (!raw) { clearSearchState(); return; }
+    var scope = state.searchScope;
+    var local = contextualSearch.localMatches(scope, raw, VOD, CHANNELS, 100);
+    state.searchLoading = true;
+    state.searchError = '';
+    state.searchRemotePage = 0;
+    state.searchRemoteHasMore = false;
+    state.searchRemoteBusy = false;
+    renderSearchResults(local);
+    if (vodApi.mode !== 'portal') {
+      state.searchLoading = false;
+      renderSearchResultPage(state.searchPage, -1);
       return;
     }
-    /* Instant local matches (0ms response) */
-    var localMatches = [];
-    for (var i = 0; i < VOD.length; i++) {
-      var tNorm = norm(VOD[i].title || '');
-      var aNorm = VOD[i].alias ? norm(VOD[i].alias) : '';
-      if (tNorm.indexOf(q) !== -1 || (aNorm && aNorm.indexOf(q) !== -1)) {
-        localMatches.push(VOD[i]);
-      }
-    }
-    renderSearchResults(localMatches);
+    state.searchTimer = setTimeout(function () { requestSearchPage(1, seq, false, 0); }, 350);
+  }
 
-    /* Debounced remote portal search (350ms) */
-    if (state.searchTimer) { clearTimeout(state.searchTimer); }
-    if (vodApi.mode === 'portal' && q.length >= 2) {
-      var seq = ++state.searchSeq;
-      state.searchTimer = setTimeout(function () {
-        portalServiceCall('search', { value: rawQ.trim() }, function (error, payload) {
-          if (seq !== state.searchSeq) { return; }
-          if (error || !payload || payload.returnValue === false || !payload.items || !payload.items.length) {
-            /* Keep existing local matches, never clear on empty remote response */
-            return;
-          }
-          var merged = localMatches.slice();
-          var seen = {};
-          for (var m = 0; m < merged.length; m++) { seen[String(merged[m].id)] = true; }
-          for (var p = 0; p < payload.items.length; p++) {
-            var item = normalizeVod(payload.items[p], merged.length + 1);
-            if (!seen[String(item.id)]) {
-              seen[String(item.id)] = true;
-              merged.push(item);
-            }
-          }
-          renderSearchResults(merged);
-        });
-      }, 350);
-    }
+  function requestSearchPage(page, seq, nextPage, column) {
+    if (state.searchRemoteBusy || seq !== state.searchSeq || state.screen !== 'search') { return; }
+    var scope = state.searchScope;
+    var method = contextualSearch.endpoint(scope);
+    var args = { search: state.searchQuery, pageNum: page, pageSize: 50 };
+    if (scope === 'tv') { args.columnId = 'all'; }
+    state.searchRemoteBusy = true;
+    portalServiceCall(method, args, function (error, payload) {
+      if (seq !== state.searchSeq || scope !== state.searchScope || state.screen !== 'search') { return; }
+      state.searchRemoteBusy = false;
+      state.searchLoading = false;
+      if (error || !payload || payload.returnValue === false) {
+        state.searchError = 'No se pudo consultar el catálogo.';
+        state.searchRemoteHasMore = false;
+        renderSearchResultPage(state.searchPage, -1);
+        return;
+      }
+      var records = scope === 'tv' ? (payload.channels || []) : (payload.items || []);
+      var fresh = [];
+      for (var i = 0; i < records.length; i++) {
+        var item = scope === 'tv' ? records[i] : normalizeVod(records[i], i + 1);
+        if (contextualSearch.matches(scope, state.searchQuery, item)) { fresh.push(item); }
+      }
+      state.searchRemotePage = page;
+      state.searchRemoteHasMore = !!payload.hasMore && records.length > 0;
+      state.searchMatches = contextualSearch.merge(scope, state.searchMatches, fresh);
+      if (nextPage) {
+        var target = Math.min(Math.floor(Math.max(0, state.searchMatches.length - 1) / SEARCH_PAGE_SIZE), state.searchPage + 1);
+        renderSearchResultPage(target, Math.min(4, column || 0));
+      } else { renderSearchResults(state.searchMatches); }
+    });
+  }
+
+  function requestMoreSearchResults(column) {
+    if (!state.searchRemoteHasMore || state.searchRemoteBusy) { return; }
+    requestSearchPage(state.searchRemotePage + 1, state.searchSeq, true, column);
   }
 
   var SEARCH_PAGE_SIZE = 10;
 
   function renderSearchResults(matches) {
-    /* A short query can match hundreds of portal titles.  webOS 4 runs out
-       of media/UI memory if every poster is inserted at once, so retain the
-       complete result list in JS but render one 2-row page at a time. */
     state.searchMatches = matches || [];
     state.searchPage = 0;
     renderSearchResultPage(0, -1);
@@ -3512,50 +3618,56 @@ function portalServiceCall(method, params, done, customTimeout) {
     searchHot.classList.add('is-hidden');
     searchResults.classList.add('is-active');
     clear(searchResultGrid);
-    if (matches.length === 0) {
+    if (!matches.length) {
       searchEmpty.classList.add('is-active');
+      var title = searchEmpty.querySelector('.search-empty-title');
+      var hint = searchEmpty.querySelector('.search-empty-hint.h1');
+      if (title) { title.textContent = state.searchLoading ? 'Buscando…' :
+        state.searchError ? 'No se pudo buscar' : 'Sin resultados'; }
+      if (hint) { hint.textContent = state.searchLoading ? 'Consultando el catálogo…' :
+        state.searchError || 'Prueba con otro nombre.'; }
       if (searchNav) { searchNav.textContent = ''; }
       return;
     }
     searchEmpty.classList.remove('is-active');
-    var pageCount = Math.ceil(matches.length / SEARCH_PAGE_SIZE);
-    var page = Math.max(0, Math.min(pageCount - 1, requestedPage || 0));
+    var pagesCount = Math.ceil(matches.length / SEARCH_PAGE_SIZE);
+    var page = Math.max(0, Math.min(pagesCount - 1, requestedPage || 0));
     state.searchPage = page;
-    var start = page * SEARCH_PAGE_SIZE;
-    var end = Math.min(matches.length, start + SEARCH_PAGE_SIZE);
+    var start = page * SEARCH_PAGE_SIZE, end = Math.min(matches.length, start + SEARCH_PAGE_SIZE);
     if (searchNav) {
       searchNav.textContent = 'Resultados ' + (start + 1) + '-' + end + ' de ' + matches.length +
-        (pageCount > 1 ? '  ·  Página ' + (page + 1) + '/' + pageCount : '');
+        (pagesCount > 1 ? ' · Página ' + (page + 1) + '/' + pagesCount : '') +
+        (state.searchRemoteHasMore ? ' · ↓ Más resultados' : '') +
+        (state.searchError ? ' · Servicio no disponible' : '');
     }
     for (var m = start; m < end; m++) {
-      var localIndex = m - start;
-      var cell = makeSearchCell(normalizeVod(matches[m], m + 1), localIndex);
-      var poster = cell.querySelector('.poster');
-      if (poster) {
-        (function (indexOnPage, column) {
-          poster._onMove = function (dir) {
-            if (dir === 'down' && indexOnPage >= 5 && end < matches.length) {
-              renderSearchResultPage(page + 1, column);
-              return true;
+      var pos = m - start;
+      var cell = state.searchScope === 'tv' ? makeChannelSearchCell(matches[m], pos) :
+        makeSearchCell(normalizeVod(matches[m], m + 1), pos);
+      var clickable = cell.querySelector('.focusable');
+      if (clickable) {
+        (function (indexOnPage, columnOnPage) {
+          clickable._onMove = function (dir) {
+            if (dir === 'down' && indexOnPage >= 5) {
+              if (end < matches.length) { renderSearchResultPage(page + 1, columnOnPage); return true; }
+              if (state.searchRemoteHasMore) { requestMoreSearchResults(columnOnPage); return true; }
             }
             if (dir === 'up' && indexOnPage < 5 && start > 0) {
-              renderSearchResultPage(page - 1, 5 + column);
-              return true;
+              renderSearchResultPage(page - 1, 5 + columnOnPage); return true;
             }
             return false;
           };
-        })(localIndex, localIndex % 5);
+        })(pos, pos % 5);
       }
       searchResultGrid.appendChild(cell);
     }
     searchResultGrid.style.height = '874px';
     if (focusIndex >= 0) {
-      var requested = searchResultGrid.querySelectorAll('.poster.focusable')[focusIndex];
-      if (!requested) { requested = firstIn(searchResultGrid); }
+      var requested = searchResultGrid.querySelectorAll('.focusable')[focusIndex] || firstIn(searchResultGrid);
       if (requested) { setFocus(requested); }
     } else if (state.screen === 'search' && (closest(state.focus, '.search-hot') || closest(state.focus, '.search-results'))) {
-      var f = firstIn(searchResultGrid);
-      if (f) { setFocus(f); }
+      var next = firstIn(searchResultGrid);
+      if (next) { setFocus(next); }
     }
   }
 
