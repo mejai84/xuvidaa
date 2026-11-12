@@ -270,7 +270,7 @@ class M3uProvider {
         type: 'movie',
         isSeries: false,
         source: 'private-m3u',
-        streamPath: xtreamInfo ? xtreamInfo.relativePath : '', // sanitized path for disk cache
+        streamPath: xtreamInfo && xtreamInfo.type === 'movie' ? xtreamInfo.relativePath : '', // never cache arbitrary provider paths
         streamUrl: m.url // in-memory stream URL
       });
     }
