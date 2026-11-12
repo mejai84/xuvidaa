@@ -23,7 +23,7 @@
     section: 'tv', query: '', category: 'all', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
     hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
-    view: 'all', lastFailure: '', retryCount: 0, diagnosticSeq: 0, playbackSeq: 0
+    view: 'all', lastFailure: '', retryCount: 0, liveSourceIndex: 0, liveSourceCount: 1, diagnosticSeq: 0, playbackSeq: 0
   };
   function show(id, visible) { $(id).hidden = !visible; }
   function text(id, value) { $(id).textContent = value || ''; }
@@ -440,7 +440,10 @@
     state.hls=new window.Hls({enableWorker:false});
     state.hls.loadSource(source);
     state.hls.attachMedia($('video'));
-    playCurrentVideo();
+    state.hls.on(window.Hls.Events.MANIFEST_PARSED,function(){playCurrentVideo();});
+    state.hls.on(window.Hls.Events.ERROR,function(_event,data){
+      if(data && data.fatal && state.screen==='player' && playerKind==='tv') tryNextLiveSource('La señal HLS falló.');
+    });
   }
   var hlsScriptLoading=false, hlsScriptCallbacks=[];
   function getHlsLibrary(done) {
@@ -493,8 +496,20 @@
       playCurrentVideo();
     }
   }
+  function tryNextLiveSource(reason) {
+    if(state.screen!=='player' || playerKind!=='tv' || !state.currentChannel)return;
+    if(state.liveSourceIndex+1 < state.liveSourceCount) {
+      state.liveSourceIndex++;
+      state.retryCount=0;
+      text('playerMessage',reason+' Probando señal alternativa '+(state.liveSourceIndex+1)+'/'+state.liveSourceCount+'…');
+      playResolved(state.currentChannel);
+    } else {
+      state.lastFailure=reason+' No hay más señales compatibles disponibles.';
+      text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
+    }
+  }
   function playResolved(ch) {
-    api('resolveLive',{channelCode:ch.channelCode || ch.id},function(err,stream) {
+    api('resolveLive',{channelCode:ch.channelCode || ch.id,sourceIndex:state.liveSourceIndex},function(err,stream) {
       if (state.screen!=='player' || state.currentChannel!==ch) return;
       if (err) {
         state.lastFailure=err;
@@ -509,6 +524,7 @@
         return;
       }
       state.retryCount=0;
+      state.liveSourceCount=Number(stream.sourceCount)||1;
       text('playerMessage','');
       attachMedia(stream);
       // A TV channel is live and tokens expire; obtain a fresh reference periodically.
@@ -524,6 +540,8 @@
     playerKind='tv';
     previousScreen='catalog';
     state.retryCount=0;
+    state.liveSourceIndex=0;
+    state.liveSourceCount=1;
     state.screen='player';
     state.currentChannel=ch;
     rememberWatched('tv',ch);
@@ -783,7 +801,8 @@
   $('video').addEventListener('error',function(){
     if(state.screen==='player') {
       state.lastFailure='El video no pudo reproducirse en este dispositivo.';
-      text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
+      if(playerKind==='tv')tryNextLiveSource(state.lastFailure);
+      else text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
     }
   });
   document.addEventListener('visibilitychange',function(){
