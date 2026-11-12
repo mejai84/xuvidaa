@@ -37,9 +37,14 @@ test('VIDAA control events support arrows, OK and Back', () => {
   assert.match(app, /key===13\|\|key===32/);
 });
 
-test('private VOD is still blocked until playback safety is verified', () => {
+test('private VOD uses opaque references, not URLs from the browser', () => {
   const api = fs.readFileSync(path.join(root, 'server/api/vidaa-api.cjs'), 'utf8');
-  assert.match(api, /if \(method === 'resolve'\) \{[\s\S]*?return respond\(res,501/);
+  const codec = fs.readFileSync(path.join(root, 'server/api/lib/media-token.js'), 'utf8');
+  assert.match(api, /method === 'resolve'/);
+  assert.match(api, /registry\.register/);
+  assert.match(api, /vod\.resolveStream\(id\)/);
+  assert.match(codec, /typeof payload\.ref === 'string'/);
+  assert.doesNotMatch(codec, /typeof payload\.url === 'string'/);
 });
 
 test('startup splash is viewport centered and hides login until session is checked', () => {
@@ -70,4 +75,15 @@ test('mobile centers content while desktop and TVs use viewport sizing', () => {
   assert.match(css, /\.catalog\s*\{\s*-webkit-justify-content:\s*center;\s*justify-content:\s*center;/);
   assert.match(css, /@media \(min-width: 2200px\)/);
   assert.doesNotMatch(css, /transform:\s*scale\(/);
+});
+
+test('family UX has profile switch, favorites, playback and diagnostics callbacks', () => {
+  const family = fs.readFileSync(path.join(root, 'web/js/family.js'),'utf8');
+  for (const name of ['profile','favoritesFilter','recentFilter','continueFilter',
+     'detailPlay','prevChannel','nextChannel','diagnosticsButton']) {
+    assert.match(html,new RegExp('id="'+name+'"'));
+  }
+  assert.match(family,/function toggleFavorite/);
+  assert.match(app,/function resolveVodPlayback/);
+  assert.match(app,/function refreshDiagnostics/);
 });
