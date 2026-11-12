@@ -5,6 +5,7 @@ const http = require('http');
 const dns = require('node:dns');
 const net = require('node:net');
 const mediaTokenCodec = require('./lib/media-token');
+const registry = require('./media-registry.cjs');
 const secret = process.env.MEDIA_TOKEN_SECRET || '';
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 
@@ -35,15 +36,35 @@ module.exports = function handler(req, res) {
   }
   if (!secret) return reply(res, 503, 'Media relay no configurado');
   if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Método no permitido');
-  const entry = mediaTokenCodec.decode(String(req.query.token || ''), secret);
-  if (!entry) return reply(res, 403, 'Token inválido');
+  const signed = mediaTokenCodec.decode(String(req.query.token || ''), secret);
+  if (!signed) return reply(res, 403, 'Token inválido');
+  const entry = signed.ref ? registry.lookup(String(req.query.token || '')) : signed;
+  if (!entry) return reply(res, 410, 'Referencia de video vencida');
+  // New tokens carry only a random reference and expiry; the original URL and
+  // upstream credentials never appear in the browser, including HLS segments.
   let url;
   try { url = new URL(entry.url); }
   catch (_) { return reply(res, 400, 'Token inválido'); }
   if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
   let base;
   try { base = mediaBase(); } catch (_) { return reply(res, 503, 'URL pública del servicio no configurada correctamente'); }
-  const reference = (source) => base + '/api/media?token=' + encodeURIComponent(req.query.token) + '&child=' + encodeURIComponent(source);
+  const reference = (source) => {
+    // An HLS playlist may refer to variants, segments and key URIs.
+    // Do not expose these URLs through the 'child' query (they may contain
+    // credentials). Register each reference in the private memory registry.
+    const child = new URL(source, url);
+    if (child.protocol !== 'https:' || child.username || child.password ||
+      (child.port && child.port !== '443') ||
+      !(entry.hosts || []).includes(child.hostname.toLowerCase())) {
+      throw new Error('Segmento fuera del proveedor autorizado');
+    }
+    const issued = registry.register({
+      url:child.toString(),hosts:entry.hosts,mime:'application/octet-stream',
+      headers:entry.headers || {},duration:entry.duration||0
+    },entry.exp);
+    if (!issued) throw new Error('No se pudo registrar el segmento');
+    return base + '/api/media?token=' + encodeURIComponent(issued.token);
+  };
   // Only HTTPS public IPTV origins are accepted in the dedicated VIDAA web runtime.
   const subtitleIndex = req.query.subtitle;
   if (subtitleIndex !== undefined) {
@@ -87,7 +108,10 @@ module.exports = function handler(req, res) {
   const hlsSource = /mpegurl/i.test(entry.mime || '') || /\.m3u8$/i.test(url.pathname);
   if (!child && req.query.manifest === '1' && !hlsSource && /video\/mp2t|\.ts$/i.test(entry.mime || url.pathname)) {
     const duration = Number.isFinite(entry.duration) && entry.duration > 0 ? entry.duration : 86400;
-    const manifest = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:' + Math.ceil(duration) + '\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:' + duration + ',\n' + reference(url.toString()) + '\n#EXT-X-ENDLIST\n';
+    let childReference;
+    try { childReference = reference(url.toString()); }
+    catch (_) { return reply(res, 403, 'Fuente no permitida'); }
+    const manifest = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:' + Math.ceil(duration) + '\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:' + duration + ',\n' + childReference + '\n#EXT-X-ENDLIST\n';
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'private, no-store');
     return res.status(200).send(req.method === 'HEAD' ? '' : manifest);
