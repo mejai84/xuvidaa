@@ -50,11 +50,6 @@ async function openProviderStream({url,hosts,source,headers={},dnsLookup=dns.pro
         if(!Number.isFinite(length)||length<0||length>MAX_BYTES){
           response.destroy();return fail(new Error('Tamaño no permitido'));
         }
-        let count=0;
-        response.on('data',chunk=>{
-          count+=chunk.length;
-          if(count>MAX_BYTES)response.destroy(new Error('Límite de datos excedido'));
-        });
         settled=true;
         resolve({stream:response,abort:()=>request.destroy(),contentLength:length||null});
       });
