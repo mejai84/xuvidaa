@@ -782,6 +782,12 @@
   $('clearSearch').addEventListener('click',clearSearch);
   $('search').addEventListener('input',changeQuery);
   $('searchShortcut').addEventListener('click',function(){$('search').focus();});
+  $('country').addEventListener('change',function(){
+    state.country=this.value||'CO';
+    state.category='all';
+    $('category').value='all';
+    fetchPage(1,false);
+  });
   $('category').addEventListener('change',function(){
     state.category=this.value||'all';fetchPage(1,false);
   });
