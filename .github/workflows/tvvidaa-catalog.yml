@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/tvvidaa-catalog-production
+      - feature/vidaa-web-native
   pull_request:
     branches:
       - hostinger-vps
@@ -82,6 +83,23 @@ jobs:
         env:
           PUBLIC_BASE_URL: https://tv.example.test
           MEDIA_TOKEN_SECRET: test-ci-media-secret-32-bytes-minimum-0123456789
-          XUPER_SESSION_SECRET: test-ci-session-secret-32-bytes-minimum-0123456789
-          XUPER_WEB_PASSWORD: example-test-password-not-used-in-production
+          VIDAA_SESSION_SECRET: test-ci-session-secret-32-bytes-minimum-0123456789
+          VIDAA_WEB_PASSWORD: example-test-password-not-used-in-production
         run: docker compose -f deploy/hostinger/compose.yaml config --quiet
+
+      - name: Docker smoke test - native web runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -d --name tvvidaa-smoke -p 127.0.0.1:38590:3000             -e PUBLIC_BASE_URL=https://tv.example.test             -e MEDIA_TOKEN_SECRET=test-ci-media-secret-32-bytes-minimum-0123456789             -e VIDAA_SESSION_SECRET=test-ci-session-secret-32-bytes-minimum-0123456789             -e VIDAA_WEB_PASSWORD=example-test-password-not-used-in-production             tvvidaa-catalog:ci
+          trap 'docker rm -f tvvidaa-smoke >/dev/null 2>&1 || true' EXIT
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:38590/healthz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:38590/healthz | grep '"ready":true'
+          curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/ | grep '<title>TVVIDAA'
+          curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/js/app.js | grep 'standalone web'
+          curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/css/app.css | grep 'standalone responsive'
+          curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/api/session | grep '"authenticated":false'
+
