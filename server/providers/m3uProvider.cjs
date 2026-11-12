@@ -356,14 +356,29 @@ class M3uProvider {
     return new Promise((resolve, reject) => {
       const parsed = new URL(targetUrl);
       const mod = parsed.protocol === 'https:' ? https : http;
-      const req = mod.get(targetUrl, { timeout: 45000, headers: { 'User-Agent': 'xuvidaa/1.0' } }, (res) => {
+      const req = mod.get(targetUrl, { timeout: 45000, headers: { 'User-Agent': 'TVVIDAA/1.0' } }, (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
           res.resume();
           return reject(new Error(`HTTP ${res.statusCode} al descargar lista M3U`));
         }
         const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        let total = 0;
+        let done = false;
+        res.on('data', (c) => {
+          if (done) return;
+          total += c.length;
+          if (total > 64 * 1024 * 1024) {
+            done = true;
+            res.destroy(new Error('La lista M3U excede 64 MB'));
+            return;
+          }
+          chunks.push(c);
+        });
+        res.on('error', (err) => reject(new Error('Descarga M3U interrumpida')));
+        res.on('end', () => {
+          if (done) return;
+          resolve(Buffer.concat(chunks).toString('utf8'));
+        });
       });
       req.on('error', (err) => reject(new Error('Fallo de red al descargar M3U: ' + err.message)));
       req.setTimeout(45000, () => req.destroy(new Error('Timeout de 45s descargando M3U')));
@@ -372,9 +387,24 @@ class M3uProvider {
 
   // Prepares data for disk cache, guaranteeing ZERO CREDENTIALS in file
   sanitizeDataForDisk(data) {
+    // The catalog cache is not a place to keep upstream URLs, auth-bearing
+    // images, provider identifiers or plaintext credentials.
+    const safeArtwork = (raw) => {
+      try {
+        if (!raw) return null;
+        const uri = new URL(raw);
+        if (uri.protocol !== 'https:' || uri.username || uri.password) return null;
+        const expanded = decodeURIComponent(uri.toString());
+        if (/(?:[?&](?:pass|password|username|token|auth|key|apikey)=)/i.test(expanded)) return null;
+        if ([this.username,this.password].some(secret => secret && expanded.includes(secret))) return null;
+        return uri.toString();
+      } catch (_) { return null; }
+    };
     const sanitizeMovies = data.movies.map((m) => {
       const copy = Object.assign({}, m);
       delete copy.streamUrl; // do not store raw authenticated URL on disk
+      delete copy.sourceItemId;
+      copy.poster = safeArtwork(copy.poster);
       // Store only a relative, credential-free provider path so the stream
       // index can be restored after a process restart.
       return copy;
@@ -382,6 +412,8 @@ class M3uProvider {
 
     const sanitizeSeries = data.series.map((s) => {
       const copy = Object.assign({}, s);
+      copy.poster = safeArtwork(copy.poster);
+      copy.backdrop = safeArtwork(copy.backdrop);
       copy.seasons = s.seasons.map((season) => ({
         id: season.id,
         number: season.number,
@@ -390,6 +422,8 @@ class M3uProvider {
         episodes: season.episodes.map((ep) => {
           const epCopy = Object.assign({}, ep);
           delete epCopy.streamUrl; // do not store raw authenticated URL on disk
+          delete epCopy.sourceItemId;
+          epCopy.logo = safeArtwork(epCopy.logo);
           return epCopy;
         })
       }));
@@ -432,7 +466,7 @@ class M3uProvider {
   }
 
   async refresh(force) {
-    if (this.refreshPromise && !force) {
+    if (this.refreshPromise) {
       return this.refreshPromise;
     }
 
@@ -787,7 +821,26 @@ class M3uProvider {
 
     let entry = this.streamIndex ? this.streamIndex.get(targetId) : null;
 
-    // If not found or streamIndex empty (e.g. cold restart with disk cache), refresh if configured
+    // Unknown IDs must never trigger a full 69k-item provider download.
+    // Only refresh when a known cached item has no reconstructible URL.
+    if (!entry && this.inMemoryCatalog) {
+      const knownMovie = (this.inMemoryCatalog.movies || []).some(m =>
+        m.id === targetId || m.sourceItemId === targetId);
+      let knownEpisode = false;
+      if (!knownMovie) {
+        outer: for (const series of (this.inMemoryCatalog.series || [])) {
+          for (const season of (series.seasons || [])) {
+            for (const episode of (season.episodes || [])) {
+              if (episode.id === targetId || episode.sourceItemId === targetId) {
+                knownEpisode = true; break outer;
+              }
+            }
+          }
+        }
+      }
+      if (!knownMovie && !knownEpisode) return {found:false,errorText:'Contenido no encontrado'};
+    }
+    // If the known ID is not reconstructed, refresh the M3U once.
     if ((!entry || !entry.streamUrl) && this.isConfigured()) {
       try {
         const fresh = await this.refresh(true);
