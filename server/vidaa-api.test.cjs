@@ -155,3 +155,30 @@ test('SSRF validation rejects local, numeric and single-label destinations',()=>
   }
   assert.equal(api.isUnsafeHost('cdn.example.com'),false);
 });
+
+test('HTTP VOD resolution requires explicit host:port allowlist and acknowledgement',async()=>{
+  const saved=api.vod.resolveStream, configured=api.vod.isConfigured;
+  const oldAck=process.env.VIDAA_HTTP_VOD_ACK,oldHosts=process.env.VIDAA_HTTP_VOD_HOSTS;
+  api.vod.isConfigured=()=>true;
+  api.vod.resolveStream=async()=>({found:true,streamUrl:'http://media.example:8080/movie/u/p/99.mp4',
+    mime:'video/mp4',isHls:false,item:{title:'Private demo'}});
+  try {
+    delete process.env.VIDAA_HTTP_VOD_ACK;
+    process.env.VIDAA_HTTP_VOD_HOSTS='media.example:8080';
+    assert.equal((await invoke('resolve',{contentId:'mov-12345'})).status,415);
+    process.env.VIDAA_HTTP_VOD_ACK='yes';
+    process.env.VIDAA_HTTP_VOD_HOSTS='different.example:8080';
+    assert.equal((await invoke('resolve',{contentId:'mov-12345'})).status,415);
+    process.env.VIDAA_HTTP_VOD_HOSTS='media.example:8080';
+    const r=await invoke('resolve',{contentId:'mov-12345'});
+    assert.equal(r.status,200);
+    assert.match(r.body.mediaUrl,/^\/api\/media\?token=v1\./);
+    assert.doesNotMatch(JSON.stringify(r.body),/media.example|\/movie\/u\/p/);
+    const token=new URL(r.body.mediaUrl,'https://tv.example.test').searchParams.get('token');
+    assert.equal(registry.lookup(token).url,'http://media.example:8080/movie/u/p/99.mp4');
+  } finally {
+    api.vod.resolveStream=saved;api.vod.isConfigured=configured;
+    if(oldAck===undefined)delete process.env.VIDAA_HTTP_VOD_ACK;else process.env.VIDAA_HTTP_VOD_ACK=oldAck;
+    if(oldHosts===undefined)delete process.env.VIDAA_HTTP_VOD_HOSTS;else process.env.VIDAA_HTTP_VOD_HOSTS=oldHosts;
+  }
+});
