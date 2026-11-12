@@ -1,222 +1,206 @@
 'use strict';
 
-const https = require('https');
-const http = require('http');
+// Standalone TVVIDAA HTTPS media relay. Zero upstream URLs/credentials leave
+// the server: only opaque AES-GCM references are sent to web/VIDAA clients.
+const https = require('node:https');
 const dns = require('node:dns');
 const net = require('node:net');
-const mediaTokenCodec = require('./lib/media-token');
+const tokenCodec = require('./lib/media-token.js');
 const registry = require('./media-registry.cjs');
-const secret = process.env.MEDIA_TOKEN_SECRET || '';
-const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+const MANIFEST_LIMIT = 2 * 1024 * 1024;
+const RANGE = /^bytes=(?:\d+-\d*|-\d+)$/;
 
-function mediaBase() {
-  const configured = process.env.PUBLIC_BASE_URL || process.env.PUBLIC_ORIGIN;
-  if (!configured) return '';
-  const parsed = new URL(configured);
-  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== '/') {
-    throw new Error('Invalid public base');
-  }
-  return parsed.origin;
+function error(res, code, message) {
+  if (res.headersSent) { res.destroy(); return; }
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.status(code).json({error: message});
 }
-
-function reply(res, status, message) {
-  res.status(status).setHeader('Cache-Control', 'no-store');
-  return res.json({ error: message });
+function publicIPv4(address) {
+  if (net.isIP(address) !== 4) return false;
+  const x = address.split('.').map(Number);
+  const a=x[0], b=x[1], c=x[2];
+  if (a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && (b === 168 || b === 0 || (b === 88 && c === 99))) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      (a === 192 && b === 0 && c === 2) ||
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113)) return false;
+  return true;
 }
-
-module.exports = function handler(req, res) {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  const origin = req.headers.origin;
-  if (origin) {
-    let parsed;
-    try { parsed = new URL(origin); } catch (_) { return reply(res, 403, 'Origen no permitido'); }
-    if (parsed.protocol !== 'https:' || parsed.origin !== origin || parsed.host !== req.headers.host) {
-      return reply(res, 403, 'Origen no permitido');
-    }
-  }
-  if (!secret) return reply(res, 503, 'Media relay no configurado');
-  if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, 'Método no permitido');
-  const signed = mediaTokenCodec.decode(String(req.query.token || ''), secret);
-  if (!signed) return reply(res, 403, 'Token inválido');
-  const entry = signed.ref ? registry.lookup(String(req.query.token || '')) : signed;
-  if (!entry) return reply(res, 410, 'Referencia de video vencida');
-  // New tokens carry only a random reference and expiry; the original URL and
-  // upstream credentials never appear in the browser, including HLS segments.
-  let url;
-  try { url = new URL(entry.url); }
-  catch (_) { return reply(res, 400, 'Token inválido'); }
-  if (!Number.isFinite(entry.exp) || entry.exp < Date.now()) return reply(res, 410, 'Token vencido');
-  let base;
-  try { base = mediaBase(); } catch (_) { return reply(res, 503, 'URL pública del servicio no configurada correctamente'); }
-  const reference = (source) => {
-    // An HLS playlist may refer to variants, segments and key URIs.
-    // Do not expose these URLs through the 'child' query (they may contain
-    // credentials). Register each reference in the private memory registry.
-    const child = new URL(source, url);
-    if (child.protocol !== 'https:' || child.username || child.password ||
-      (child.port && child.port !== '443') ||
-      !(entry.hosts || []).includes(child.hostname.toLowerCase())) {
-      throw new Error('Segmento fuera del proveedor autorizado');
-    }
-    const issued = registry.register({
-      url:child.toString(),hosts:entry.hosts,mime:'application/octet-stream',
-      headers:entry.headers || {},duration:entry.duration||0
-    },entry.exp);
-    if (!issued) throw new Error('No se pudo registrar el segmento');
-    return base + '/api/media?token=' + encodeURIComponent(issued.token);
-  };
-  // Only HTTPS public IPTV origins are accepted in the dedicated VIDAA web runtime.
-  const subtitleIndex = req.query.subtitle;
-  if (subtitleIndex !== undefined) {
-    const index = Number(subtitleIndex);
-    const subtitle = Number.isInteger(index) && index >= 0 && index < (entry.subtitles || []).length ? entry.subtitles[index] : null;
-    if (!subtitle || !subtitle.url) return reply(res, 404, 'Subtítulo no encontrado');
-    let subtitleUrl;
-    try { subtitleUrl = new URL(subtitle.url); } catch (_) { return reply(res, 400, 'URL de subtítulo inválida'); }
-    if (subtitleUrl.protocol !== 'https:' || subtitleUrl.username || subtitleUrl.password || !(entry.hosts || []).includes(subtitleUrl.hostname.toLowerCase())) return reply(res, 403, 'CDN de subtítulos no permitido');
-    const subtitleRequest = https.get(subtitleUrl, { headers: Object.assign({}, entry.headers || {}) }, (remote) => {
-      if (remote.statusCode < 200 || remote.statusCode >= 300) { remote.resume(); return reply(res, 502, 'No se pudo descargar el subtítulo'); }
-      const chunks = [];
-      let size = 0;
-      remote.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > 2 * 1024 * 1024) { subtitleRequest.destroy(new Error('subtitle too large')); return; }
-        chunks.push(chunk);
-      });
-      remote.on('end', () => {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Cache-Control', 'private, no-store');
-        res.status(200).send(Buffer.concat(chunks).toString('utf8'));
-      });
-    });
-    subtitleRequest.on('error', () => { if (!res.headersSent) reply(res, 502, 'No se pudo leer el subtítulo'); });
-    subtitleRequest.setTimeout(15000, () => subtitleRequest.destroy(new Error('timeout')));
-    return;
-  }
-  const child = String(req.query.child || '');
-  if (child) {
-    let childUrl;
-    try { childUrl = new URL(child, url); } catch (_) { return reply(res, 400, 'Segmento inválido'); }
-    const childHost = childUrl.hostname.toLowerCase();
-    if (childUrl.protocol !== 'https:' || childUrl.username || childUrl.password || !(entry.hosts || []).includes(childHost)) return reply(res, 403, 'Segmento no permitido');
-    url = childUrl;
-  }
-  const streamHost = url.hostname.toLowerCase();
-  if (url.protocol !== 'https:' || url.username || url.password || !(entry.hosts || []).includes(streamHost))
-    return reply(res, 403, 'CDN no permitido');
-
-  const hlsSource = /mpegurl/i.test(entry.mime || '') || /\.m3u8$/i.test(url.pathname);
-  if (!child && req.query.manifest === '1' && !hlsSource && /video\/mp2t|\.ts$/i.test(entry.mime || url.pathname)) {
-    const duration = Number.isFinite(entry.duration) && entry.duration > 0 ? entry.duration : 86400;
-    let childReference;
-    try { childReference = reference(url.toString()); }
-    catch (_) { return reply(res, 403, 'Fuente no permitida'); }
-    const manifest = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:' + Math.ceil(duration) + '\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:' + duration + ',\n' + childReference + '\n#EXT-X-ENDLIST\n';
-    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+function validateUrl(raw, hosts) {
+  try {
+    const uri = new URL(raw);
+    const host = uri.hostname.toLowerCase();
+    if (uri.protocol !== 'https:' || uri.username || uri.password ||
+        (uri.port && uri.port !== '443') || net.isIP(host) || !host.includes('.') ||
+        host.endsWith('.') || !Array.isArray(hosts) || !hosts.includes(host)) return null;
+    return uri;
+  } catch (_) { return null; }
+}
+function createHandler(deps) {
+  const modules = deps || {};
+  const resolveDns = modules.dnsLookup || dns.lookup;
+  const makeRequest = modules.httpsRequest || https.request;
+  return function handler(req, res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-store');
-    return res.status(200).send(req.method === 'HEAD' ? '' : manifest);
-  }
+    const secret = process.env.MEDIA_TOKEN_SECRET || '';
+    if (!secret) return error(res, 503, 'Servidor de medios no configurado');
+    if (req.method !== 'GET' && req.method !== 'HEAD') return error(res, 405, 'Método no permitido');
+    const origin = req.headers.origin;
+    if (origin) {
+      try {
+        const actual = new URL(origin), allowed = new URL(process.env.PUBLIC_BASE_URL || '');
+        if (actual.protocol !== 'https:' || actual.origin !== origin || actual.origin !== allowed.origin) {
+          return error(res, 403, 'Origen no permitido');
+        }
+      } catch (_) { return error(res, 403, 'Origen no permitido'); }
+    }
+    if (req.query.child !== undefined || req.query.subtitle !== undefined) {
+      return error(res, 400, 'Referencias directas no permitidas');
+    }
+    const token = String(req.query.token || '');
+    const signed = tokenCodec.decode(token, secret);
+    if (!signed || !/^[0-9a-f]{40}$/.test(String(signed.ref || ''))) {
+      return error(res, 403, 'Referencia multimedia inválida');
+    }
+    if (!Number.isFinite(signed.exp) || signed.exp < Date.now()) {
+      return error(res, 410, 'Referencia multimedia vencida');
+    }
+    const entry = registry.lookup(token);
+    if (!entry) return error(res, 410, 'Referencia multimedia no disponible');
+    const url = validateUrl(entry.url, entry.hosts);
+    if (!url) return error(res, 403, 'Origen multimedia no permitido');
+    if (req.headers.range && !RANGE.test(String(req.headers.range))) {
+      return error(res, 416, 'Rango inválido');
+    }
+    let publicBase;
+    try {
+      const conf = new URL(process.env.PUBLIC_BASE_URL || '');
+      if (conf.protocol !== 'https:' || conf.username || conf.password || conf.pathname !== '/' || conf.search || conf.hash) throw new Error('origin');
+      publicBase = conf.origin;
+    } catch (_) { return error(res, 503, 'Dominio público no configurado'); }
 
-  const headers = Object.assign({}, entry.headers || {}, { Host: url.host, Connection: 'close' });
-  const requestModule = https;
-  if (req.headers.range) headers.Range = String(req.headers.range).slice(0, 200);
-  if (req.headers['if-range']) headers['If-Range'] = String(req.headers['if-range']).slice(0, 200);
-  const requestOptions = { method: req.method, headers: headers, timeout: 25000, protocol: 'https:', hostname: url.hostname, port: url.port || 443, path: url.pathname + url.search, servername: url.hostname };
-  const begin = (options) => {
-  const upstream = requestModule.request(options, (remote) => {
-    if ([301, 302, 303, 307, 308].includes(remote.statusCode)) {
-      remote.resume(); return reply(res, 502, 'CDN redirigió la fuente');
+    function reference(source) {
+      const child = validateUrl(new URL(source, url).toString(), entry.hosts);
+      if (!child) throw new Error('Host de segmento no permitido');
+      const mimetype = /\.m3u8$/i.test(child.pathname) ? 'application/vnd.apple.mpegurl' : 'application/octet-stream';
+      const next = registry.register({
+        url:child.toString(),hosts:entry.hosts,
+        mime:mimetype,headers:entry.headers||{},duration:entry.duration||0
+      },entry.exp);
+      if (!next) throw new Error('No se pudo registrar segmento');
+      return publicBase + '/api/media?token=' + encodeURIComponent(next.token);
     }
-    const out = {
-      'Content-Type': remote.headers['content-type'] || 'application/octet-stream',
-      'Cache-Control': 'private, no-store',
-      'Accept-Ranges': remote.headers['accept-ranges'] || 'bytes'
-    };
-    if (remote.headers['content-length']) out['Content-Length'] = remote.headers['content-length'];
-    if (remote.headers['content-range']) out['Content-Range'] = remote.headers['content-range'];
-    const contentType = String(remote.headers['content-type'] || '');
-    if (req.method === 'HEAD') {
-      res.writeHead(remote.statusCode || 502, out);
-      remote.resume();
-      return res.end();
-    }
-    if (/mpegurl/i.test(contentType) || /\.m3u8$/i.test(url.pathname)) {
-      if (remote.statusCode < 200 || remote.statusCode >= 300) {
-        remote.resume(); return reply(res, 502, 'No se pudo descargar el manifiesto');
-      }
-      const chunks = [];
-      let size = 0;
-      let failed = false;
-      const fail = () => {
-        if (failed || res.writableEnded || res.destroyed) return;
-        failed = true;
-        if (!res.headersSent) reply(res, 502, 'No se pudo leer el manifiesto');
-        else res.destroy();
-        upstream.destroy();
-      };
-      remote.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > MAX_MANIFEST_BYTES) { fail(); return; }
-        if (!failed) chunks.push(chunk);
-      });
-      remote.on('error', fail);
-      remote.on('aborted', fail);
-      remote.on('end', () => {
-        if (failed || res.writableEnded || res.destroyed) return;
-        let manifest;
-        try {
-          const body = Buffer.concat(chunks).toString('utf8');
-          if (!/^\s*#EXTM3U(?:\s|$)/.test(body)) return fail();
-          manifest = body.split(/\r?\n/).map((line) => {
-          if (!line) return line;
-          if (line.charAt(0) === '#') return line.replace(/URI=("|')([^"']+)\1/g, (all, quote, ref) => 'URI=' + quote + reference(new URL(ref, url).toString()) + quote);
-          return reference(new URL(line, url).toString());
-        }).join('\n'); } catch (_) { return reply(res, 502, 'Manifiesto contiene URLs no válidas'); }
-        delete out['Content-Length'];
-        out['Content-Type'] = 'application/vnd.apple.mpegurl';
-        res.writeHead(remote.statusCode || 502, out);
-        res.end(manifest);
-      });
+
+    const isHls = /mpegurl/i.test(entry.mime || '') || /\.m3u8$/i.test(url.pathname);
+    // IPTV .ts as a synthetic single-segment HLS playlist, not an open proxy.
+    if (!isHls && req.query.manifest === '1' &&
+      (/video\/mp2t/.test(entry.mime || '') || /\.ts$/i.test(url.pathname))) {
+      let child;
+      try { child=reference(url.toString()); }
+      catch (_) { return error(res, 403, 'Segmento no permitido'); }
+      const duration=Number.isFinite(entry.duration) && entry.duration>0 ? entry.duration : 86400;
+      const manifest='#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:'+
+        Math.ceil(duration)+'\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:'+duration+',\n'+child+'\n#EXT-X-ENDLIST\n';
+      res.setHeader('Content-Type','application/vnd.apple.mpegurl');
+      res.status(200).send(req.method === 'HEAD' ? '' : manifest);
       return;
     }
-    res.writeHead(remote.statusCode || 502, out);
-    remote.on('error', () => res.destroy());
-    remote.on('aborted', () => res.destroy());
-    remote.pipe(res);
-  });
-  upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
-  upstream.on('error', () => { if (!res.headersSent) reply(res, 502, 'No se pudo leer el medio'); else res.destroy(); });
-  res.on('close', () => {
-    if (!res.writableEnded) upstream.destroy();
-  });
-  upstream.end();
-  };
-  // Resolve and pin a public IPv4 address before opening the upstream socket.
-  // Reject local, carrier/private, metadata, reserved and multicast ranges.
-  dns.lookup(url.hostname, { all: true, verbatim: true }, (error, addresses) => {
-    if (error || !addresses || !addresses.length) return reply(res, 502, 'No se pudo resolver el canal');
-    function publicIPv4(value) {
-      if (net.isIP(value) !== 4) return false;
-      const a = value.split('.').map(Number);
-      return !(a[0] === 0 || a[0] === 10 || a[0] === 127 || a[0] >= 224 ||
-        (a[0] === 100 && a[1] >= 64 && a[1] <= 127) ||
-        (a[0] === 169 && a[1] === 254) ||
-        (a[0] === 172 && a[1] >= 16 && a[1] <= 31) ||
-        (a[0] === 192 && (a[1] === 168 || a[1] === 0)) ||
-        (a[0] === 198 && (a[1] === 18 || a[1] === 19)) ||
-        (a[0] === 192 && a[1] === 0 && a[2] === 2) ||
-        (a[0] === 198 && a[1] === 51 && a[2] === 100) ||
-        (a[0] === 203 && a[1] === 0 && a[2] === 113));
+    // Explicitly disallow off-host redirects and other schemes.
+    const headers = Object.assign({}, entry.headers || {});
+    delete headers.Host;
+    delete headers.host;
+    delete headers.Connection;
+    if (req.headers.range) headers.Range=String(req.headers.range);
+    if (req.headers['if-range']) headers['If-Range']=String(req.headers['if-range']).slice(0,150);
+    headers.Connection='close';
+
+    function requestUpstream(address) {
+      const options={
+        protocol:'https:',method:req.method,hostname:url.hostname,servername:url.hostname,
+        port:443,path:url.pathname+url.search,headers,timeout:25000,
+        lookup:(_hostname,_options,callback)=>callback(null,address,4)
+      };
+      const upstream=makeRequest(options,(remote)=>{
+        const status=remote.statusCode||502;
+        if ([301,302,303,307,308].includes(status)) {
+          remote.resume();return error(res,502,'El proveedor redirigió la señal');
+        }
+        const out={
+          'Cache-Control':'private, no-store',
+          'Content-Type':String(remote.headers['content-type']||'application/octet-stream'),
+          'X-Content-Type-Options':'nosniff'
+        };
+        if (remote.headers['content-length']) out['Content-Length']=remote.headers['content-length'];
+        if (remote.headers['content-range']) out['Content-Range']=remote.headers['content-range'];
+        if (remote.headers['accept-ranges']) out['Accept-Ranges']=remote.headers['accept-ranges'];
+        if (req.method==='HEAD') {
+          res.writeHead(status,out);remote.resume();res.end();return;
+        }
+        const manifest=/mpegurl/i.test(out['Content-Type']) || /\.m3u8$/i.test(url.pathname);
+        if (manifest) {
+          if (status<200 || status>=300) {
+            remote.resume();return error(res,502,'Manifiesto no disponible');
+          }
+          const chunks=[];let size=0,failed=false;
+          function fail(message) {
+            if(failed)return;failed=true;
+            upstream.destroy();
+            error(res,502,message);
+          }
+          remote.on('data',(chunk)=>{
+            size+=chunk.length;
+            if(size>MANIFEST_LIMIT)return fail('Manifiesto demasiado grande');
+            chunks.push(chunk);
+          });
+          remote.on('error',()=>fail('Fallo leyendo manifiesto'));
+          remote.on('aborted',()=>fail('Proveedor interrumpió manifiesto'));
+          remote.on('end',()=>{
+            if(failed)return;
+            try {
+              const body=Buffer.concat(chunks).toString('utf8');
+              if(!/^\s*#EXTM3U(?:\s|$)/.test(body))throw new Error('not m3u8');
+              const playlist=body.split(/\r?\n/).map(line=>{
+                if (!line) return line;
+                if(line.charAt(0)==='#')return line.replace(/URI=("|')([^"']+)\1/g,(_full,q,relative)=>{
+                  return 'URI='+q+reference(relative)+q;
+                });
+                return reference(line.trim());
+              }).join('\n');
+              delete out['Content-Length'];delete out['Content-Range'];delete out['Accept-Ranges'];
+              out['Content-Type']='application/vnd.apple.mpegurl';
+              res.writeHead(200,out);res.end(playlist);
+            } catch (_) {error(res,502,'El manifiesto contiene recursos no permitidos');}
+          });
+          return;
+        }
+        // Range 206 / Content-Range and 416 are forwarded unchanged. Do not
+        // advertise Accept-Ranges if the provider did not actually supply it.
+        res.writeHead(status,out);
+        remote.on('error',()=>res.destroy());
+        remote.on('aborted',()=>res.destroy());
+        remote.pipe(res);
+      });
+      upstream.on('timeout',()=>upstream.destroy(new Error('Timeout upstream')));
+      upstream.on('error',()=>error(res,502,'No se pudo conectar con el video'));
+      res.on('close',()=>{if(!res.writableEnded)upstream.destroy();});
+      upstream.end();
     }
-    // We pin an IPv4 socket. Ignore ordinary public IPv6 answers, but never
-    // connect to IPv6 or a private/reserved IPv4 address.
-    const ipv4 = addresses.filter(a => a.family === 4);
-    if (!ipv4.length) return reply(res, 502, 'Este CDN solo tiene conectividad IPv6');
-    if (ipv4.some(a => !publicIPv4(a.address))) return reply(res, 403, 'Origen de red restringido');
-    const ip = ipv4[0].address;
-    const opts = Object.assign({}, requestOptions, {
-      lookup: (_hostname, _options, cb) => cb(null, ip, 4)
+    resolveDns(url.hostname,{all:true,verbatim:true},(err,addresses)=>{
+      if(err || !Array.isArray(addresses) || !addresses.length) return error(res,502,'No se pudo resolver el origen multimedia');
+      const v4=addresses.filter(x=>x.family===4);
+      if(!v4.length)return error(res,502,'Origen sin IPv4 compatible');
+      if(v4.some(x=>!publicIPv4(x.address)))return error(res,403,'Origen de red restringido');
+      requestUpstream(v4[0].address);
     });
-    begin(opts);
-  });
-};
+  };
+}
+const handler=createHandler();
+module.exports=handler;
+module.exports.createHandler=createHandler;
+module.exports.publicIPv4=publicIPv4;
+module.exports.validateUrl=validateUrl;
