@@ -20,7 +20,7 @@
   var lastProgressSave = 0;
   var previousScreen = 'catalog';
   var state = {
-    section: 'tv', query: '', category: 'all', country: 'CO', page: 0, more: false, total: 0,
+    section: 'tv', query: '', category: 'all', country: 'ALL', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
     hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
     view: 'all', lastFailure: '', retryCount: 0, liveSourceIndex: 0, liveSourceCount: 1, liveWatchdog: null, liveLastTime: -1, liveLastProgress: 0, liveStarted: false, diagnosticSeq: 0, playbackSeq: 0
@@ -874,7 +874,7 @@
     if(open) { var first=nav.querySelector('[data-section]'); if(first) first.focus(); }
   });
   $('country').addEventListener('change',function(){
-    state.country=this.value||'CO';
+    state.country=this.value||'ALL';
     state.category='all';
     $('category').value='all';
     fetchPage(1,false);
