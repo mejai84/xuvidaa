@@ -3,7 +3,7 @@
 // Never let ffprobe access provider URLs or follow protocols.
 const {spawn}=require('node:child_process');
 const {pipeline}=require('node:stream/promises');
-const {PassThrough}=require('node:stream');
+const {Transform}=require('node:stream');
 const {selectMkvPlan}=require('./mkv-remux-policy.cjs');
 const MAX_PROBE_BYTES=4*1024*1024;
 const MAX_RESULT_BYTES=64*1024;
@@ -20,13 +20,16 @@ function probeMkv({source,spawnProcess=spawn,timeoutMs=12000,maxBytes=MAX_PROBE_
   catch(err){source.destroy();return Promise.reject(err);}
   if(!child||!child.stdin||!child.stdout||typeof child.kill!=='function')throw new TypeError('Proceso inválido');
   let bytes=0,output=0,parts=[],finished=false;
-  const limiter=new PassThrough();
+  const limiter=new Transform({transform(chunk,_encoding,callback){
+    const remaining=maxBytes-bytes;
+    if(remaining<=0){source.unpipe(limiter);source.destroy();this.push(null);return callback();}
+    const part=chunk.subarray(0,remaining);
+    bytes+=part.length;
+    callback(null,part);
+    if(bytes>=maxBytes){source.unpipe(limiter);source.destroy();this.push(null);}
+  }});
   const timer=setTimeout(()=>{child.kill('SIGKILL');source.destroy(new Error('Tiempo de análisis agotado'));},timeoutMs);
   timer.unref?.();
-  source.on('data',chunk=>{
-    bytes+=chunk.length;
-    if(bytes>maxBytes){source.unpipe(limiter);source.destroy();limiter.end();}
-  });
   child.stdout.on('data',chunk=>{
     output+=chunk.length;
     if(output>MAX_RESULT_BYTES){child.kill('SIGKILL');return;}
@@ -37,7 +40,7 @@ function probeMkv({source,spawnProcess=spawn,timeoutMs=12000,maxBytes=MAX_PROBE_
     child.once('close',code=>code===0?resolve():reject(new Error('No se pudieron analizar los códecs')));
   });
   const feeding=pipeline(source,limiter,child.stdin).catch(err=>{
-    if(bytes>maxBytes)return;
+    if(bytes>=maxBytes)return;
     throw err;
   });
   return Promise.all([exit,feeding]).then(()=>{
