@@ -780,8 +780,19 @@
       navigate(key===37?'left':key===38?'up':key===39?'right':'down');
       e.preventDefault();
     }
-    if(key===13||key===32) {
-      if(active && active.click){active.click();e.preventDefault();}
+    // VIDAA remotes may report OK as Enter/NumpadEnter or code 13.
+    // Do not synthesize a click when focus is on the page body: focus a channel first.
+    if(key===13||key===32||e.key==='Enter'||e.key==='NumpadEnter') {
+      var target=active;
+      if(state.screen==='catalog' && (!target || target===document.body || target===document.documentElement)) {
+        target=document.querySelector('#results .focus-card');
+        if(target && target.focus) target.focus();
+      }
+      if(target && typeof target.click==='function') {
+        e.preventDefault();
+        target.click();
+      }
+      return;
     }
     if(state.screen==='player') {
       var video=$('video');
