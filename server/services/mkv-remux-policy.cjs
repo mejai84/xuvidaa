@@ -29,8 +29,8 @@ function selectMkvPlan(streams) {
 
 function ffmpegHlsArgs(plan, input, playlistPath) {
   if (!plan || !plan.supported || plan.mode !== 'remux') throw new Error('Plan inválido');
-  // Caller must provide an internally controlled local FIFO/file, never a URL.
-  if (typeof input !== 'string' || !/^\/tmp\/tvvidaa-mkv\/[a-zA-Z0-9_-]+\.mkv$/.test(input)) throw new Error('Entrada inválida');
+  // stdin is an internally supplied, validated stream; never accept remote URLs.
+  if (input !== 'pipe:0' && (typeof input !== 'string' || !/^\/tmp\/tvvidaa-mkv\/[a-zA-Z0-9_-]+\.mkv$/.test(input))) throw new Error('Entrada inválida');
   if (typeof playlistPath !== 'string' || !/^\/tmp\/tvvidaa-hls\/[a-zA-Z0-9_-]+\/index\.m3u8$/.test(playlistPath)) throw new Error('Salida inválida');
   return [
     '-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', String(MAX_THREADS),
