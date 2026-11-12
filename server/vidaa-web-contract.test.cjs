@@ -41,3 +41,33 @@ test('private VOD is still blocked until playback safety is verified', () => {
   const api = fs.readFileSync(path.join(root, 'server/api/vidaa-api.cjs'), 'utf8');
   assert.match(api, /if \(method === 'resolve'\) \{[\s\S]*?return respond\(res,501/);
 });
+
+test('startup splash is viewport centered and hides login until session is checked', () => {
+  const css = fs.readFileSync(path.join(root, 'web/css/app.css'), 'utf8');
+  assert.match(html, /id="splash" class="splash-screen"/);
+  assert.match(html, /id="auth" class="auth-screen"[^>]*hidden/);
+  assert.match(html, /id="shell" hidden/);
+  assert.match(css, /\.splash-screen\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
+  assert.match(app, /function showLogin\(message\)\s*\{[\s\S]*?show\('splash', false\)/);
+  assert.match(app, /xhr\.ontimeout = function \(\) \{ showLogin/);
+  assert.match(app, /function enter\(\)\s*\{\s*show\('splash', false\)/);
+});
+
+test('catalog shows and clears its centered loading indicator', () => {
+  const css = fs.readFileSync(path.join(root, 'web/css/app.css'), 'utf8');
+  assert.match(html, /id="catalogLoader"[^>]*hidden/);
+  assert.match(css, /\.catalog-loader\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
+  assert.match(app, /show\('catalogLoader', !append\)/);
+  assert.match(app, /show\('catalogLoader', false\)/);
+});
+
+test('mobile centers content while desktop and TVs use viewport sizing', () => {
+  const css = fs.readFileSync(path.join(root, 'web/css/app.css'), 'utf8');
+  assert.match(html, /name="viewport"/);
+  assert.match(css, /#shell\s*\{\s*width:\s*100%;\s*min-height:\s*100vh;/);
+  assert.match(css, /@media \(max-width: 800px\)/);
+  assert.match(css, /\.content\s*\{\s*width:\s*100%;\s*max-width:\s*580px;\s*margin:\s*0 auto;/);
+  assert.match(css, /\.catalog\s*\{\s*-webkit-justify-content:\s*center;\s*justify-content:\s*center;/);
+  assert.match(css, /@media \(min-width: 2200px\)/);
+  assert.doesNotMatch(css, /transform:\s*scale\(/);
+});
