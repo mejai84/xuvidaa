@@ -26,7 +26,8 @@ function createMkvSessionManager({gate=createRemuxGate(),workspaceFactory=create
     if(typeof startJob!=='function')throw new TypeError('Se requiere iniciar trabajo');
     if(current||gate.busy())return null;
     // Reserve the gate before asynchronous directory creation.
-    const lease=gate.acquire(()=>{if(current?.job)current.job.stop();});
+    let activeJob=null;
+    const lease=gate.acquire(()=>{if(activeJob)activeJob.stop();});
     if(!lease)return null;
     let workspace;
     try {
@@ -36,6 +37,7 @@ function createMkvSessionManager({gate=createRemuxGate(),workspaceFactory=create
       const job=await startJob(workspace);
       if(!job||typeof job.stop!=='function'||!job.done||typeof job.done.then!=='function')
         throw new Error('Trabajo inválido');
+      activeJob=job;
       current={workspace,token,lease,expires,job};
       job.done.catch(()=>{}).finally(()=>{if(current?.lease===lease)stop().catch(()=>{});});
       return {id:workspace.id,token,expires,playlistUrl:'/api/mkv/'+workspace.id+'/index.m3u8?token='+token};
