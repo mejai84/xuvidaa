@@ -96,15 +96,19 @@
     if (event && event.preventDefault) event.preventDefault();
     var button = $('loginForm').querySelector('button[type="submit"]');
     if (button.disabled) return;
+    var field = $('password');
     button.disabled = true;
-    text('loginError', 'Verificando…');
-    api('login', {password: $('password').value}, function (err, payload) {
+    button.textContent = 'Ingresando…';
+    text('loginError', '');
+    api('login', {password: field.value}, function (err, payload) {
       button.disabled = false;
+      button.textContent = 'Ingresar';
       if (err || !payload || !payload.authenticated) {
-        text('loginError',err || 'No se pudo iniciar sesión.');
+        text('loginError', err || 'Contraseña incorrecta. Intenta de nuevo.');
+        if (typeof field.focus === 'function') field.focus();
         return;
       }
-      $('password').value = '';
+      field.value = '';
       setPasswordVisible(false);
       enter();
     });
