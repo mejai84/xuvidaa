@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const net = require('node:net');
 const { spawnSync } = require('node:child_process');
 const vm = require('node:vm');
 const codec = require('../webos/fidelity/api/lib/media-token');
@@ -40,10 +41,14 @@ test('the resolve API returns an opaque URL instead of exposing the source strea
   };
   const module = { exports: {} };
   vm.runInNewContext(source, {
-    module, Buffer, URL, process: { env: { MEDIA_TOKEN_SECRET: mediaSecret, PUBLIC_BASE_URL: 'https://app.example.test' } },
+    module, Buffer, URL, __dirname: path.resolve(__dirname, '../webos/fidelity/api'), process: { env: { MEDIA_TOKEN_SECRET: mediaSecret, PUBLIC_BASE_URL: 'https://app.example.test', LEGACY_MAGIS_ENABLED: 'true' } },
     require(name) {
       if (name === './lib/magis') return magis;
       if (name === './lib/media-token') return codec;
+      if (name === 'path') return path;
+      if (name === 'net') return net;
+      if (name.endsWith('/server/providers/iptvOrgProvider.cjs')) return { IptvOrgProvider: class {} };
+      if (name.endsWith('/server/providers/m3uProvider.cjs')) return { M3uProvider: class {} };
       throw new Error('Unexpected dependency');
     }
   });

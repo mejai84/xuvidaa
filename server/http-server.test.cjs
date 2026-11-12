@@ -167,3 +167,18 @@ test('configuration refuses invalid public origins and weak access credentials',
   assert.throws(() => createServer({ ...options, publicOrigin: ORIGIN, accessPassword: 'a'.repeat(14) }));
   assert.throws(() => createServer({ ...options, publicOrigin: ORIGIN, accessPassword: 'a'.repeat(14), sessionSecret: 'short' }));
 });
+
+test('passwordless server skips login and reports an open session', async (t) => {
+  const f = await fixture(t);
+  const session = await f.request('/api/session');
+  assert.equal(session.status, 200);
+  assert.deepEqual(JSON.parse(session.text), { authenticated: true });
+  assert.equal((await f.request('/api/ping')).status, 200);
+  assert.equal((await f.request('/api/media?token=test')).status, 206);
+  const login = await f.request('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+    body: JSON.stringify({ password: 'unused' })
+  });
+  assert.equal(login.status, 404);
+});

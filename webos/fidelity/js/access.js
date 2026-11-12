@@ -36,6 +36,7 @@
           'sha384-z+tuLqMWl1/cPv7O+39RO0EURSNvorimpcCaMgeNwU+qFBx+AlUIl7jaAwg0cYil')
           .catch(function () { return null; });
       })
+      .then(function () { return loadScript('/js/search-scope.js'); })
       .then(function () { return loadScript('/js/app.js'); })
       .catch(function () {
         started = false;
@@ -69,16 +70,33 @@
       body: JSON.stringify({ password: input.value })
     })
       .then(function (response) {
-        if (!response.ok) throw new Error(response.status === 401 ? 'La clave no es correcta.' :
-          (response.status === 429 ? 'Demasiados intentos. Espera unos minutos.' : 'No se pudo iniciar sesión.'));
-        return response.json();
+        var status = response.status;
+        if (!response.ok) {
+          var reason = status === 401 ? 'La clave no es correcta.' :
+            status === 403 ? 'Origen rechazado por el servidor.' :
+            status === 404 ? 'Ruta de acceso no disponible.' :
+            status === 429 ? 'Demasiados intentos; vuelve a intentarlo más tarde.' :
+            status >= 500 ? 'Fallo del servidor.' : 'Solicitud rechazada.';
+          throw new Error('HTTP ' + status + ': ' + reason);
+        }
+        return response.json().then(function (result) {
+          return { status: status, result: result };
+        }, function () {
+          throw new Error('HTTP ' + status + ': El servidor no devolvió un JSON válido.');
+        });
       })
-      .then(function (result) {
-        if (!result || !result.authenticated) throw new Error('No se pudo iniciar sesión.');
+      .then(function (response) {
+        if (!response.result || !response.result.authenticated) {
+          throw new Error('HTTP ' + response.status + ': No se confirmó la sesión.');
+        }
         input.value = '';
         startApp();
       })
-      .catch(function (error) { say(error.message || 'No se pudo iniciar sesión.'); })
+      .catch(function (error) {
+        var detail = error && error.message ? error.message : '';
+        say(/^HTTP [0-9]{3}:/.test(detail) ? detail :
+          'No se pudo contactar con /api/login. Revisa la conexión del televisor.');
+      })
       .then(function () { button.disabled = false; });
   });
 })();

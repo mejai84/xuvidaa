@@ -1,0 +1,87 @@
+name: TVVIDAA catalog validation
+
+on:
+  push:
+    branches:
+      - fix/tvvidaa-catalog-production
+  pull_request:
+    branches:
+      - hostinger-vps
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(find server tools webos/fidelity/api webos/fidelity/js -type f \( -name '*.js' -o -name '*.cjs' \) -print0)
+
+      - name: Unit and integration tests
+        env:
+          MEDIA_TOKEN_SECRET: test-ci-media-secret-32-bytes-minimum-0123456789
+          PUBLIC_BASE_URL: https://tv.example.test
+        run: node --test server/*.test.cjs server/providers/*.test.cjs tools/*.test.cjs
+
+      - name: Protected player paths remain unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin hostinger-vps --depth=1 || true
+          changed=$(git diff --name-only origin/hostinger-vps HEAD -- webos/services/)
+          if [ -n "$changed" ]; then
+            echo "Protected webOS player service changed unexpectedly:"; echo "$changed"; exit 1
+          fi
+          # The UI app.js contains both search/menus and protected playback.
+          # Allow only localized menu/search edits relative to the production branch.
+          node - <<'NODE'
+          const cp = require('node:child_process');
+          const diff = cp.execFileSync('git', ['diff', '--unified=0', 'origin/hostinger-vps', 'HEAD', '--', 'webos/fidelity/js/app.js'], {encoding:'utf8'});
+          // Allowed baseline ranges: catalog roots, tabs, search state, search key routing,
+          // home launcher, and the search screen. No media/player/episode functions.
+          const allowed = [[45,80],[795,842],[861,898],[1265,1330],[1620,1740],[3295,3605]];
+          const prohibited = /\b(?:playUrl|resolveSmooth|restartCurrentPlayback|forceRelay|playerSeek|streamMode|ffmpeg-relay|proxy\.js|dnsx\.js)\b/;
+          for (const line of diff.split('\n')) {
+            const hunk = /^@@ -(\d+)/.exec(line);
+            if (hunk) {
+              const n = Number(hunk[1]);
+              if (!allowed.some(([start,end]) => n >= start && n <= end)) {
+                throw new Error('Unreviewed app.js change outside search/menu ranges near original line ' + n);
+              }
+            } else if ((line.startsWith('+') && !line.startsWith('+++')) ||
+                       (line.startsWith('-') && !line.startsWith('---'))) {
+              if (prohibited.test(line)) {
+                throw new Error('Protected playback code changed in diff');
+              }
+            }
+          }
+          NODE
+
+      - name: Docker image build
+        run: docker build -f deploy/hostinger/Dockerfile -t tvvidaa-catalog:ci .
+
+      - name: Docker Compose configuration
+        env:
+          PUBLIC_BASE_URL: https://tv.example.test
+          MEDIA_TOKEN_SECRET: test-ci-media-secret-32-bytes-minimum-0123456789
+          XUPER_SESSION_SECRET: test-ci-session-secret-32-bytes-minimum-0123456789
+          XUPER_WEB_PASSWORD: example-test-password-not-used-in-production
+        run: docker compose -f deploy/hostinger/compose.yaml config --quiet

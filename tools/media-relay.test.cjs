@@ -7,16 +7,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
+const mediaTokenCodec = require('../webos/fidelity/api/lib/media-token');
 
 const source = fs.readFileSync(path.join(__dirname, '../webos/fidelity/api/media.js'), 'utf8');
 const secret = crypto.randomBytes(32).toString('hex');
 
 async function request({ entry = {}, query = {}, method = 'GET', headers = {}, body = '', status = 200, type = 'application/vnd.apple.mpegurl', env = {}, abort = false } = {}) {
-  const payload = Buffer.from(JSON.stringify({
+  // Match the encrypted AES-GCM token contract used by the production media API.
+  const token = mediaTokenCodec.encode({
     url: 'https://cdn.example/live/master.m3u8', hosts: ['cdn.example'],
     headers: {}, mime: 'application/x-mpegurl', exp: Date.now() + 60000, ...entry
-  })).toString('base64url');
-  const token = payload + '.' + crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  }, secret);
+  assert.match(token, /^v1\./);
   let connections = 0;
   const module = { exports: {} };
   const response = new EventEmitter();
@@ -46,6 +48,7 @@ async function request({ entry = {}, query = {}, method = 'GET', headers = {}, b
       if (name === 'crypto') return crypto;
       if (name === 'http' || name === 'https') return { request: connect, get: connect };
       if (name === './lib/dnsx') return { prepare: (options, done) => done(null, options) };
+      if (name === './lib/media-token') return mediaTokenCodec;
       throw new Error('Unexpected dependency');
     }
   };

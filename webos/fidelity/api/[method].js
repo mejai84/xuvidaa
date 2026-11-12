@@ -2,11 +2,39 @@
 
 const magis = require('./lib/magis');
 const mediaTokenCodec = require('./lib/media-token');
+const path = require('path');
+const net = require('net');
+const { IptvOrgProvider } = require(path.join(__dirname, '../../../server/providers/iptvOrgProvider.cjs'));
+const { M3uProvider } = require(path.join(__dirname, '../../../server/providers/m3uProvider.cjs'));
+
+const iptvOrg = new IptvOrgProvider({
+  country: process.env.IPTV_COUNTRY || 'CO',
+  languagePriority: process.env.IPTV_LANG || 'spa',
+  excludeNsfw: process.env.IPTV_EXCLUDE_NSFW !== 'false',
+  cacheDir: path.join(__dirname, '../../../server/.cache')
+});
+const m3uProvider = new M3uProvider({
+  baseUrl: process.env.M3U_BASE_URL || '',
+  username: process.env.M3U_USERNAME || '',
+  password: process.env.M3U_PASSWORD || '',
+  type: process.env.M3U_TYPE || 'm3u',
+  cacheDir: path.join(__dirname, '../../../server/.cache')
+});
+const legacyPortalEnabled = process.env.LEGACY_MAGIS_ENABLED === 'true';
+
+function restrictedStreamHost(hostname) {
+  const host = String(hostname || '').trim().toLowerCase();
+  if (!host || net.isIP(host) || host === 'localhost' ||
+      /\.(?:localhost|local|internal|lan|corp)$/.test(host)) return true;
+  return false;
+}
+
 
 const methods = new Set([
   'ping', 'keepAlive', 'heartbeat', 'home', 'search', 'detail', 'resolve',
   'resolveSmooth', 'mediaInfo', 'liveChannels', 'liveCategories', 'fetchM3u',
-  'resolveLive', 'abortMedia', 'prewarm'
+  'resolveLive', 'abortMedia', 'prewarm',
+  'm3uMovies', 'm3uSeries', 'm3uDetail', 'm3uStatus'
 ]);
 const roots = new Set(['featured', 'movies', 'series', 'anime', 'kids', 'free']);
 const limits = new Map();
@@ -110,10 +138,85 @@ module.exports = async function handler(req, res) {
 
   try {
     if (method === 'ping' || method === 'heartbeat' || method === 'keepAlive') return done(null, { service: 'xuper-html', alive: true });
-    if (method === 'home') return portalRequest((finish) => magis.home(String(input.root || 'movies'), finish));
-    if (method === 'search') return portalRequest((finish) => magis.search(String(input.value || ''), finish));
-    if (method === 'detail') return portalRequest((finish) => magis.detail(String(input.contentId || ''), finish));
+
+    if (method === 'home') {
+      const root = String(input.root || 'movies');
+      try {
+        if (root === 'movies' || root === 'series') {
+          const data = root === 'movies'
+            ? await m3uProvider.getMovies({ pageNum: input.pageNum || 1, pageSize: input.pageSize || 30 })
+            : await m3uProvider.getSeries({ pageNum: input.pageNum || 1, pageSize: input.pageSize || 30 });
+          return done(null, { items: data.items || [], total: data.total || 0, hasMore: !!data.hasMore, pageNum: data.pageNum || 1 });
+        }
+        if (root === 'featured') {
+          const [movies, series] = await Promise.all([
+            m3uProvider.getMovies({ pageSize: 15 }),
+            m3uProvider.getSeries({ pageSize: 15 })
+          ]);
+          const items = (movies.items || []).concat(series.items || []);
+          return done(null, { items, total: items.length });
+        }
+      } catch (_) {
+        // A temporarily unavailable private provider must not restore the blocked portal dependency.
+        return done(null, { items: [], total: 0, warning: 'Catálogo M3U temporalmente no disponible o sin configurar' });
+      }
+      if (legacyPortalEnabled) return portalRequest((finish) => magis.home(root, finish));
+      return done(null, { items: [], total: 0 });
+    }
+
+    if (method === 'search') {
+      try {
+        const result = await m3uProvider.search(String(input.value || input.q || ''), 30);
+        return done(null, { items: result.items || [], total: result.total || 0 });
+      } catch (_) {
+        return done(null, { items: [], total: 0, warning: 'Búsqueda M3U temporalmente no disponible' });
+      }
+    }
+
+    if (method === 'detail') {
+      const id = String(input.contentId || input.id || '').trim();
+      if (!/^(?:mov-|series-)/.test(id)) {
+        if (legacyPortalEnabled) return portalRequest((finish) => magis.detail(id, finish));
+        return reply(res, 404, { returnValue: false, errorText: 'Contenido no encontrado' });
+      }
+      try {
+        const detail = await m3uProvider.getDetail(id);
+        if (detail && detail.returnValue && detail.item) {
+          return done(null, { item: detail.item, seasons: detail.seasons || [], episodes: detail.episodes || [] });
+        }
+        return reply(res, 404, { returnValue: false, errorText: 'Contenido no encontrado' });
+      } catch (_) {
+        return reply(res, 503, { returnValue: false, errorText: 'Catálogo M3U temporalmente no disponible' });
+      }
+    }
+    if (method === 'm3uMovies' || method === 'm3uSeries' || method === 'm3uDetail') {
+      try {
+        const result = method === 'm3uMovies' ? await m3uProvider.getMovies(input)
+          : method === 'm3uSeries' ? await m3uProvider.getSeries(input)
+          : await m3uProvider.getDetail(input.contentId || input.id);
+        return done(null, result);
+      } catch (_) {
+        return reply(res, 503, { returnValue: false, errorText: 'Catálogo M3U temporalmente no disponible' });
+      }
+    }
+    if (method === 'm3uStatus') {
+      const cached = await m3uProvider.readDiskCache();
+      return done(null, {
+        configured: m3uProvider.isConfigured(),
+        hasCache: !!cached,
+        fetchedAt: cached ? cached.fetchedAt : null,
+        stats: cached ? cached.stats : null
+      });
+    }
     if (method === 'resolve') {
+      const contentId = String(input.contentId || input.id || '');
+      if (/^(?:mov-|ep-)/.test(contentId)) {
+        return reply(res, 501, { returnValue: false,
+          errorText: 'La reproducción M3U privada requiere completar las pruebas de seguridad de VOD.' });
+      }
+      if (!legacyPortalEnabled) {
+        return reply(res, 404, { returnValue: false, errorText: 'Origen de reproducción no habilitado' });
+      }
       return portalRequest((finish) => magis.resolve(String(input.contentId || ''), String(input.seriesContentId || ''), { trackIndex: input.trackIndex }, finish), (err, stream) => {
         if (err) return done(err);
         let mediaUrl;
@@ -140,11 +243,66 @@ module.exports = async function handler(req, res) {
       });
     }
     if (method === 'mediaInfo') return portalRequest((finish) => magis.mediaInfo(String(input.contentId || ''), String(input.seriesContentId || ''), finish));
-    if (method === 'liveCategories') return portalRequest((finish) => magis.getLiveCategories((err, categories) => finish(err, { categories: categories || [] })));
-    if (method === 'liveChannels') return portalRequest((finish) => magis.getLiveChannels(input.columnId || null, input.pageNum, input.pageSize, (err, channels, hasMore) => finish(err, { channels: channels || [], hasMore: !!hasMore, pageNum: Number(input.pageNum) || 1 })));
-    if (method === 'prewarm') return portalRequest((finish) => magis.ensureSession((err) => finish(err, {})));
+
+    if (method === 'liveCategories') {
+      try {
+        const result = await iptvOrg.getCategories();
+        return done(null, { categories: result.categories || [] });
+      } catch (_) {
+        return done(null, { categories: [], warning: 'Catálogo IPTV-org temporalmente no disponible' });
+      }
+    }
+
+    if (method === 'liveChannels') {
+      try {
+        const result = await iptvOrg.getChannels({
+          columnId: input.columnId, pageNum: input.pageNum,
+          pageSize: input.pageSize, search: input.search || input.value
+        });
+        return done(null, { channels: result.channels || [], hasMore: !!result.hasMore,
+          pageNum: result.pageNum || 1, total: result.total || 0 });
+      } catch (_) {
+        return done(null, { channels: [], hasMore: false,
+          pageNum: Number(input.pageNum) || 1, total: 0,
+          warning: 'Catálogo IPTV-org temporalmente no disponible' });
+      }
+    }
+    if (method === 'prewarm') return done(null, { provider: 'iptv-org+m3u', ready: true });
     if (method === 'abortMedia') return done(null, {});
     if (method === 'resolveLive') {
+      const channelTarget = String(input.channelCode || input.id || '').trim();
+      if (!channelTarget) return reply(res, 400, { returnValue: false, errorText: 'Falta identificar el canal' });
+      let channel;
+      try { channel = await iptvOrg.getChannel(channelTarget); }
+      catch (_) { return reply(res, 502, { returnValue: false, errorText: 'No se pudo consultar IPTV-org' }); }
+      if (!channel) {
+        if (!legacyPortalEnabled) return reply(res, 404, { returnValue: false, errorText: 'Canal no encontrado en IPTV-org' });
+      } else {
+        if (!channel.hasStream || !channel.streamUrl) {
+          return reply(res, 404, { returnValue: false, errorText: 'Este canal no tiene transmisión registrada' });
+        }
+        const candidates = Array.isArray(channel.streams) ? channel.streams : [];
+        // HTTPS only: the existing media endpoint is intentionally restricted to encrypted origins.
+        const selected = candidates.find((s) => s && typeof s.url === 'string' && s.url.startsWith('https://')) ||
+          (String(channel.streamUrl).startsWith('https://') ? { url: channel.streamUrl } : null);
+        if (!selected) return reply(res, 415, { returnValue: false, errorText: 'El canal no ofrece un origen HTTPS compatible' });
+        let url;
+        try { url = new URL(selected.url); }
+        catch (_) { return reply(res, 502, { returnValue: false, errorText: 'Origen IPTV inválido' }); }
+        if (url.protocol !== 'https:' || restrictedStreamHost(url.hostname) || url.username || url.password) {
+          return reply(res, 403, { returnValue: false, errorText: 'Origen IPTV restringido' });
+        }
+        const isHls = /\.m3u8(?:\?|$)/i.test(url.toString()) || /mpegurl/i.test(selected.mime || '');
+        const stream = { url: url.toString(), name: channel.name || 'TV',
+          mime: isHls ? 'application/vnd.apple.mpegurl' : (selected.mime || 'video/mp2t'), headers: {}, subtitles: [] };
+        const expiresAt = mediaExpiry(stream, true);
+        const token = issueMediaToken(stream, expiresAt);
+        if (!token) return reply(res, 503, { returnValue: false, errorText: 'MEDIA_TOKEN_SECRET no configurado' });
+        const urlForTv = mediaProxyUrl(token, isHls ? '&manifest=1' : '');
+        return reply(res, 200, { returnValue: true, name: channel.name,
+          mime: stream.mime, isHls, mediaToken: token, mediaExpiresAt: expiresAt,
+          mediaUrl: urlForTv, url: urlForTv, channelCode: channel.channelCode, source: 'iptv-org' });
+      }
       return portalRequest((finish) => magis.resolveLive(String(input.channelCode || ''), finish), (err, stream) => {
         if (err) return done(err);
         let liveUrl;
@@ -166,3 +324,7 @@ module.exports = async function handler(req, res) {
     return done(err);
   }
 };
+
+// Export internal providers for isolated API contract tests (not public HTTP endpoints).
+module.exports.iptvOrg = iptvOrg;
+module.exports.m3uProvider = m3uProvider;
