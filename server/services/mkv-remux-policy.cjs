@@ -38,7 +38,8 @@ function ffmpegHlsArgs(plan, input, playlistPath) {
     '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn',
     '-c:v', 'copy', '-c:a', plan.audio === 'none' ? 'copy' : plan.audio,
     '-f', 'hls', '-hls_time', String(MAX_SEGMENT_SECONDS),
-    '-hls_playlist_type', 'event', '-hls_flags', 'temp_file',
+    '-hls_list_size', '5', '-hls_delete_threshold', '1',
+    '-hls_flags', 'delete_segments+temp_file+omit_endlist',
     '-hls_segment_filename', playlistPath.replace(/index\.m3u8$/, 'seg_%05d.ts'),
     playlistPath
   ];
