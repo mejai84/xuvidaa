@@ -8,7 +8,7 @@ const https = require('node:https');
 const { IptvOrgProvider } = require('../providers/iptvOrgProvider.cjs');
 const { M3uProvider } = require('../providers/m3uProvider.cjs');
 const registry = require('./media-registry.cjs');
-const {resolveMkv}=require('../services/mkv-playback.cjs');
+const mkvPlayback=require('../services/mkv-playback.cjs');
 const {permittedMediaOrigin,permittedLiveOrigin} = require('./lib/vod-origin-policy.cjs');
 
 const cacheDir = path.join(__dirname, '..', '.cache');
@@ -39,20 +39,46 @@ function channelHealth(code) {
   const entry = liveHealth.get(code);
   return entry && entry.until > Date.now() ? entry.status : 'unverified';
 }
+function validMediaResponse(uri, headers, body) {
+  const type = String(headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body || '');
+  const prefix = bytes.subarray(0, 4096).toString('utf8').replace(/^\uFEFF/, '').trimStart();
+  if (/mpegurl|vnd\.apple\.mpegurl/.test(type) || /\.m3u8$/i.test(uri.pathname)) {
+    return /^#EXTM3U(?:\s|$)/.test(prefix) && /(?:#EXTINF:|#EXT-X-STREAM-INF:|#EXT-X-TARGETDURATION:)/.test(prefix);
+  }
+  if (/mp2t/.test(type) || /\.ts$/i.test(uri.pathname)) {
+    return bytes.length >= 188 && bytes[0] === 0x47 &&
+      (bytes.length < 189 || bytes[188] === 0x47) &&
+      (bytes.length < 377 || bytes[376] === 0x47);
+  }
+  if (/^(?:video\/mp4|video\/iso\.segment)$/.test(type) || /\.mp4$/i.test(uri.pathname)) {
+    return bytes.length >= 8 && bytes.subarray(4, 8).toString('ascii') === 'ftyp';
+  }
+  return false;
+}
 function checkStream(uri) {
   return new Promise(resolve => {
     const client = uri.protocol === 'https:' ? https : http;
-    let settled = false;
+    let settled = false, size = 0;
+    const chunks = [];
     const finish = status => { if (!settled) { settled = true; resolve(status); } };
     const req = client.request(uri, {
-      method:'HEAD', timeout:3500,
-      headers:{'User-Agent':'TVVIDAA/1.0','Accept':'application/vnd.apple.mpegurl,video/*'}
+      method:'GET', timeout:3500,
+      headers:{'User-Agent':'TVVIDAA/1.0','Accept':'application/vnd.apple.mpegurl,video/mp2t,video/mp4;q=0.9,*/*;q=0.1','Accept-Encoding':'identity','Range':'bytes=0-376'}
     }, response => {
-      response.resume();
       const status = response.statusCode || 0;
-      finish(status >= 200 && status < 300 ? 'available' :
-        (status === 401 || status === 403 || status === 451) ? 'restricted' :
-        status === 405 || status === 501 ? 'unverified' : 'offline');
+      if (status === 401 || status === 403 || status === 451) { response.resume(); finish('restricted'); return; }
+      if (status === 405 || status === 501) { response.resume(); finish('unverified'); return; }
+      if (status < 200 || status >= 300) { response.resume(); finish('offline'); return; }
+      response.on('data', chunk => {
+        size += chunk.length;
+        if (size <= 4096) chunks.push(chunk.subarray(0, 4096 - (size - chunk.length)));
+        if (size >= 4096) response.destroy();
+      });
+      const inspect = () => finish(validMediaResponse(uri, response.headers, Buffer.concat(chunks)) ? 'available' : 'unverified');
+      response.on('end', inspect);
+      response.on('close', inspect);
+      response.on('error', () => finish('unverified'));
     });
     req.on('error', () => finish('offline'));
     req.on('timeout', () => req.destroy());
@@ -68,17 +94,28 @@ function pumpHealth() {
     }).finally(() => {activeHealthChecks--;pumpHealth();});
   }
 }
-function scheduleHealth(channels) {
-  for (const ch of channels.slice(0,24)) {
+function scheduleHealth(channels, privateM3u) {
+  let scheduled = 0;
+  for (const ch of channels) {
+    if (scheduled >= 24) break;
     const code = String(ch.channelCode || ch.id || '');
-    if (!code || liveHealth.has(code) || healthQueue.some(t=>t.code===code)) continue;
-    const candidate = (ch.streams || []).find(s=>s && s.url) || {url:ch.streamUrl};
+    const cached = liveHealth.get(code);
+    if (!code || cached && cached.until > Date.now() || healthQueue.some(t=>t.code===code)) continue;
+    if (cached) liveHealth.delete(code);
+    const candidate = privateM3u ? {url:vod.reconstructLiveUrl(ch.streamPath)} :
+      ((ch.streams || []).find(s=>s && s.url) || {url:ch.streamUrl});
     let uri;
     try {uri = new URL(candidate.url);} catch (_) {continue;}
-    if (!permittedLiveOrigin(uri) || isUnsafeHost(uri.hostname) || uri.username || uri.password) continue;
+    let permitted = permittedLiveOrigin(uri);
+    if (privateM3u) {
+      try { permitted = permittedMediaOrigin(uri) && uri.hostname.toLowerCase() === new URL(vod.baseUrl).hostname.toLowerCase(); }
+      catch (_) { permitted = false; }
+    }
+    if (!permitted || isUnsafeHost(uri.hostname) || uri.username || uri.password) continue;
     if (healthQueue.length >= 48) break;
     liveHealth.set(code,{status:'unverified',until:Date.now()+60000});
     healthQueue.push({code,uri});
+    scheduled++;
   }
   if (liveHealth.size > 3000) {
     for (const [key,value] of liveHealth) if (value.until < Date.now()) liveHealth.delete(key);
@@ -131,7 +168,7 @@ function safeChannel(ch) {
     channelCode: String(ch.channelCode || ch.id || ''),
     name: String(ch.name || ''), category: String(ch.category || ''),
     logo: safeImage(ch.logo), hasStream: !!ch.hasStream,
-    signalStatus: /^priv-/.test(String(ch.id || '')) ? 'unverified' : channelHealth(String(ch.channelCode || ch.id || ''))
+    signalStatus: channelHealth(String(ch.channelCode || ch.id || ''))
   };
 }
 function safeDetail(d) {
@@ -188,9 +225,13 @@ async function handler(req, res) {
     if (method === 'liveChannels' && String(input.columnId || '').toLowerCase() === 'private-sports') {
       const all = (await vod.getLiveChannels()).filter(ch => ch.category === 'Deportes');
       const filtered = all.filter(ch => !search || ch.name.toLowerCase().includes(search.toLowerCase()));
+      scheduleHealth(filtered,true);
       const start = (pageNum - 1) * pageSize;
-      return respond(res,200,{channels:filtered.slice(start,start+pageSize).map(safeChannel),
-        pageNum,total:filtered.length,hasMore:start+pageSize<filtered.length});
+      const channels = filtered.slice(start,start+pageSize).map(safeChannel);
+      const workingOnly = input.workingOnly === true;
+      return respond(res,200,{channels:workingOnly ? channels.filter(c=>c.signalStatus==='available') : channels,
+        pageNum,total:filtered.length,hasMore:start+pageSize<filtered.length,
+        healthPending:workingOnly && channels.some(c=>c.signalStatus==='unverified')});
     }
     if (method === 'liveChannels') {
       const result = await live.getChannels({
@@ -252,7 +293,7 @@ async function handler(req, res) {
         return respond(res,415,{errorText:'La fuente privada no tiene un origen HTTPS o HTTP autorizado'});
       }
       if (result.mime === 'video/x-matroska') {
-        const playback=await resolveMkv({url:url.toString(),hosts:[url.hostname.toLowerCase()]});
+        const playback=await mkvPlayback.resolveMkv({url:url.toString(),hosts:[url.hostname.toLowerCase()]});
         if(playback.busy)return respond(res,429,{errorText:'Ya hay una reproducción MKV en curso. Intenta más tarde.',errorCode:'MKV_BUSY'});
         if(playback.unsupported)return respond(res,415,{errorText:'El códec de este MKV no es compatible con el servidor.',errorCode:'MKV_CODEC_UNSUPPORTED'});
         return respond(res,200,{
@@ -359,3 +400,5 @@ module.exports.safeMovie=safeMovie;
 module.exports.safeChannel=safeChannel;
 module.exports.safeDetail=safeDetail;
 module.exports.isUnsafeHost=isUnsafeHost;
+module.exports.checkStream=checkStream;
+module.exports.liveHealth=liveHealth;

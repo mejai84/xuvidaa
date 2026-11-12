@@ -3,11 +3,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
+const http = require('node:http');
 
 process.env.MEDIA_TOKEN_SECRET='ci-only-media-secret-0123456789-abcdef12345678';
 const api=require('./api/vidaa-api.cjs');
 const tokens=require('./api/lib/media-token.js');
 const registry=require('./api/media-registry.cjs');
+const mkvPlayback=require('./services/mkv-playback.cjs');
 
 function invoke(method,body) {
   return new Promise((resolve,reject)=>{
@@ -48,6 +50,24 @@ test('protected scope returns only public TV channel fields',async()=>{
     assert.doesNotMatch(data,/top-secret|Authorization|streamUrl|private\.example/);
     assert.match(data,/Canal Uno/);
   } finally {api.live.getChannels=saved;}
+});
+
+test('signal verification requires media bytes, handles blocked sources and never treats an HTML 200 as a working channel',async()=>{
+  const server=http.createServer((req,res)=>{
+    if(req.url==='/restricted'){res.writeHead(403);res.end();return;}
+    if(req.url==='/html.m3u8'){res.writeHead(200,{'Content-Type':'text/html'});res.end('<html>login required</html>');return;}
+    if(req.url==='/playlist.m3u8'){res.writeHead(206,{'Content-Type':'application/vnd.apple.mpegurl'});res.end('#EXTM3U\n#EXTINF:10,Channel\nsegment.ts\n');return;}
+    const ts=Buffer.alloc(376);ts[0]=0x47;ts[188]=0x47;
+    res.writeHead(206,{'Content-Type':'video/mp2t'});res.end(ts);
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const base='http://127.0.0.1:'+server.address().port;
+  try {
+    assert.equal(await api.checkStream(new URL(base+'/playlist.m3u8')),'available');
+    assert.equal(await api.checkStream(new URL(base+'/html.m3u8')),'unverified');
+    assert.equal(await api.checkStream(new URL(base+'/restricted')),'restricted');
+    assert.equal(await api.checkStream(new URL(base+'/channel.ts')),'available');
+  } finally {await new Promise(resolve=>server.close(resolve));}
 });
 
 test('movies and series are separate and do not return source URLs',async()=>{
@@ -134,7 +154,7 @@ test('private movie playback resolves only a catalog ID into an opaque same-orig
 });
 
 test('private episode HLS resolution uses opaque token and denies unsupported formats',async()=>{
-  const saved=api.vod.resolveStream,configured=api.vod.isConfigured;
+  const saved=api.vod.resolveStream,configured=api.vod.isConfigured,savedMkv=mkvPlayback.resolveMkv;
   api.vod.isConfigured=()=>true;
   try {
     api.vod.resolveStream=async()=>({found:true,streamUrl:'https://cdn.example/series/u/p/12.m3u8',
@@ -143,10 +163,11 @@ test('private episode HLS resolution uses opaque token and denies unsupported fo
     assert.equal(result.status,200);
     assert.match(result.body.mediaUrl,/&manifest=1$/);
     assert.doesNotMatch(JSON.stringify(result.body),/cdn\.example|series\/u\/p/);
+    mkvPlayback.resolveMkv=async()=>({unsupported:true,reason:'codec de prueba no compatible'});
     api.vod.resolveStream=async()=>({found:true,streamUrl:'https://cdn.example/movie.mkv',mime:'video/x-matroska'});
     const unsupported=await invoke('resolve',{contentId:'mov-12345'});
     assert.equal(unsupported.status,415);
-  } finally {api.vod.resolveStream=saved;api.vod.isConfigured=configured;}
+  } finally {api.vod.resolveStream=saved;api.vod.isConfigured=configured;mkvPlayback.resolveMkv=savedMkv;}
 });
 
 test('SSRF validation rejects local, numeric and single-label destinations',()=>{

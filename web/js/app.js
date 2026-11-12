@@ -256,7 +256,7 @@
       (section==='tv'?'canales':section==='movies'?'películas':'series') + '…');
     error(append ? 'Cargando más resultados…' : '');
     var input = {pageNum:page,pageSize:24,search:state.query};
-    if (section==='tv') { input.columnId=state.category; input.country=state.country; }
+    if (section==='tv') { input.columnId=state.category; input.country=state.country; input.workingOnly=!!$('workingOnly').checked; }
     else { input.category=state.category; }
     api(endpoints[section],input,function(err,result) {
       if (id!==state.requestId || section!==state.section || state.screen!=='catalog') return;
@@ -275,6 +275,9 @@
       text('count',section==='tv' && $('workingOnly').checked ? 'Señales verificadas (revisión progresiva)' : state.total+' resultados');
       var items=section==='tv' ? (result.channels||[]) : (result.items||[]);
       if (section==='tv' && $('workingOnly').checked) items=items.filter(function(ch){return ch.signalStatus==='available';});
+      if (section==='tv' && $('workingOnly').checked && result.healthPending) {
+        window.setTimeout(function(){if(id===state.requestId && state.screen==='catalog')fetchPage(page,false);},3500);
+      }
       if (!items.length && page===1) {
         error(section!=='tv' && result.configured===false
           ? 'La biblioteca privada aún no está configurada en el servidor.'
@@ -283,6 +286,7 @@
       } else {
         error('');
       }
+      if(section==='tv' && $('workingOnly').checked && result.healthPending) error('Verificando señales de esta página…');
       if (!append) sectionItems[section]=items.slice();
       else sectionItems[section]=sectionItems[section].concat(items);
       for (var i=0;i<items.length;i++) addCard(items[i],section);

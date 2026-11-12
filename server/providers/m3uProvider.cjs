@@ -353,7 +353,7 @@ class M3uProvider {
       },
       movieCategories,
       seriesCategories,
-      liveChannels: liveChannels.filter(ch => !/\\b(?:xxx|adult|porno|porn)\\b|\\+18|🔞/i.test(ch.title+' '+ch.groupTitle)).map(ch => {
+      liveChannels: liveChannels.filter(ch => !/\b(?:xxx|adult|porno|porn)\b|\+18|🔞/i.test(ch.title+' '+ch.groupTitle)).map(ch => {
         const parsed = parseXtreamPath(ch.url);
         return {
           id: 'priv-' + hash(ch.title + '|' + ch.url),
