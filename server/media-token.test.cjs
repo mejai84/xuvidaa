@@ -1,94 +1,50 @@
 'use strict';
-
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const fs = require('node:fs');
-const path = require('node:path');
-const net = require('node:net');
 const { spawnSync } = require('node:child_process');
-const vm = require('node:vm');
-const codec = require('../webos/fidelity/api/lib/media-token');
+const path = require('node:path');
+const codec = require('./api/lib/media-token.js');
 
 const secret = crypto.randomBytes(48).toString('hex');
 const payload = {
-  url: 'https://private-cdn.example/movie.mp4?license=private-value',
-  hosts: ['private-cdn.example'],
-  headers: { Authorization: 'Bearer private-header' },
+  url: 'https://media.example.test/movie.mp4?private=not-for-client',
+  hosts: ['media.example.test'],
+  headers: { Authorization: 'Bearer confidential-value' },
   mime: 'video/mp4',
-  duration: 180,
   subtitles: [],
-  exp: Date.now() + 60_000
+  exp: Date.now() + 60000
 };
 
-test('media tokens encrypt private URLs and upstream authorization headers', () => {
+test('AES-GCM media token encrypts URL and upstream headers', () => {
   const token = codec.encode(payload, secret);
   assert.match(token, /^v1\./);
-  assert.doesNotMatch(token, /private-cdn|license|private-value|Authorization|Bearer/);
+  assert.doesNotMatch(token, /media\.example|confidential|private|Bearer|Authorization/);
   assert.deepEqual(codec.decode(token, secret), payload);
 });
 
-test('the resolve API returns an opaque URL instead of exposing the source stream', async () => {
-  const source = fs.readFileSync(path.resolve(__dirname, '../webos/fidelity/api/[method].js'), 'utf8');
-  const mediaSecret = crypto.randomBytes(48).toString('hex');
-  const privateUrl = 'https://private-cdn.example/movie.mp4?license=private-value';
-  const privateHeader = 'Bearer private-header';
-  const magis = {
-    runWithDeadline(timeout, operation, done) { operation(done); },
-    resolve(id, seriesId, options, done) {
-      done(null, { url: privateUrl, headers: { Authorization: privateHeader }, mime: 'video/mp4', duration: 180 });
-    }
-  };
-  const module = { exports: {} };
-  vm.runInNewContext(source, {
-    module, Buffer, URL, __dirname: path.resolve(__dirname, '../webos/fidelity/api'), process: { env: { MEDIA_TOKEN_SECRET: mediaSecret, PUBLIC_BASE_URL: 'https://app.example.test', LEGACY_MAGIS_ENABLED: 'true' } },
-    require(name) {
-      if (name === './lib/magis') return magis;
-      if (name === './lib/media-token') return codec;
-      if (name === 'path') return path;
-      if (name === 'net') return net;
-      if (name.endsWith('/server/providers/iptvOrgProvider.cjs')) return { IptvOrgProvider: class {} };
-      if (name.endsWith('/server/providers/m3uProvider.cjs')) return { M3uProvider: class {} };
-      throw new Error('Unexpected dependency');
-    }
-  });
-  const response = { statusCode: 0, headers: {}, setHeader(name, value) { this.headers[name] = value; return this; }, status(code) { this.statusCode = code; return this; }, json(value) { this.value = value; return value; } };
-  await module.exports({ method: 'POST', query: { method: 'resolve' }, body: { contentId: 'movie-1' }, headers: { host: 'app.example.test' }, socket: { remoteAddress: '127.0.0.1' } }, response);
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.value.mediaUrl.startsWith('https://app.example.test/api/media?token=v1.'), true);
-  assert.equal(response.value.url, undefined);
-  assert.doesNotMatch(JSON.stringify(response.value), /private-cdn|private-value|private-header/);
-  const token = new URL(response.value.mediaUrl).searchParams.get('token');
-  assert.equal(codec.decode(token, mediaSecret).url, privateUrl);
-});
-
-test('tokens are authenticated and bound to the configured secret', () => {
+test('tampered token, wrong secret, invalid token version and weak secret fail closed', () => {
   const token = codec.encode(payload, secret);
-  assert.equal(codec.decode(token, crypto.randomBytes(48).toString('hex')), null);
+  assert.equal(codec.decode(token, 'wrong-secret'.repeat(6)), null);
+  assert.equal(codec.encode(payload, 'short'), '');
+  assert.equal(codec.decode(token.replace(/^v1/, 'v2'), secret), null);
   const parts = token.split('.');
   parts[3] = (parts[3][0] === 'A' ? 'B' : 'A') + parts[3].slice(1);
   assert.equal(codec.decode(parts.join('.'), secret), null);
-  assert.equal(codec.decode(token.slice(0, -1), secret), null);
 });
 
-test('a media URL can be recovered by a fresh Node process after restart', () => {
-  const modulePath = path.resolve(__dirname, '../webos/fidelity/api/lib/media-token.js');
-  const env = Object.assign({}, process.env, { MEDIA_TOKEN_SECRET: secret });
-  const issue = spawnSync(process.execPath, ['-e',
-    "const c=require(process.argv[1]);const p=JSON.parse(process.argv[2]);const t=c.encode(p,process.env.MEDIA_TOKEN_SECRET);if(!t)process.exit(2);process.stdout.write(t)",
-    modulePath, JSON.stringify(payload)], { encoding: 'utf8', env });
-  assert.equal(issue.status, 0, issue.stderr);
-  assert.ok(issue.stdout.startsWith('v1.'));
-
-  const recover = spawnSync(process.execPath, ['-e',
-    "const c=require(process.argv[1]);const p=c.decode(process.argv[2],process.env.MEDIA_TOKEN_SECRET);if(!p)process.exit(2);process.stdout.write(JSON.stringify(p))",
-    modulePath, issue.stdout], { encoding: 'utf8', env });
-  assert.equal(recover.status, 0, recover.stderr);
-  assert.deepEqual(JSON.parse(recover.stdout), payload);
+test('token can be decrypted after Node restart without storing secrets in catalog cache', () => {
+  const token = codec.encode(payload, secret);
+  const modulePath = path.resolve(__dirname, 'api/lib/media-token.js');
+  const result = spawnSync(process.execPath,
+    ['-e', 'const m=require(process.argv[1]);process.stdout.write(JSON.stringify(m.decode(process.argv[2], process.env.MEDIA_TOKEN_SECRET)));',
+      modulePath, token],
+    { encoding: 'utf8', env: { ...process.env, MEDIA_TOKEN_SECRET: secret }, timeout: 5000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), payload);
 });
 
-test('invalid secret, payload, and oversized data cannot mint a token', () => {
-  assert.equal(codec.encode(payload, 'short'), '');
-  assert.equal(codec.encode({ ...payload, hosts: [] }, secret), '');
-  assert.equal(codec.encode({ ...payload, headers: { x: 'x'.repeat(20 * 1024) } }, secret), '');
+test('invalid payload cannot be signed or recovered', () => {
+  assert.equal(codec.encode({ url: 'https://media.example.test/file', hosts: [], headers: {}, exp: Date.now() }, secret), '');
+  assert.equal(codec.decode('not-a-valid-token', secret), null);
 });

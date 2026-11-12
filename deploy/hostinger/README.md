@@ -11,7 +11,7 @@
 - **Compatibilidad:** HTML5/JavaScript sin Luna, sin servicio de LG ni paquetes IPK; control D-pad por eventos de teclado (Arriba, Abajo, Izquierda, Derecha, OK y Back).
 - **Diseño:** TV a pantalla completa y vista adaptable al móvil; tres secciones con búsqueda propia.
 
-El directorio histórico `webos/` permanece en el repositorio únicamente como referencia y posible rollback; **no se copia al Docker ni se utiliza para servir esta nueva interfaz**. No borrar los archivos antiguos hasta validar el despliegue en el televisor físico.
+La implementación histórica está guardada en la rama `archive/xuper-webos-20261111`; el árbol de código activo ya no contiene `webos/`. La reversión se hace desplegando un commit anterior conocido, no usando los archivos históricos desde producción.
 
 ## Despliegue Dokploy
 

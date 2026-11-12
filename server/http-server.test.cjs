@@ -8,25 +8,25 @@ const os = require('node:os');
 const path = require('node:path');
 const { createServer } = require('./http-server.cjs');
 
-const ORIGIN = 'https://xuper.example.com';
+const ORIGIN = 'https://tv.example.test';
 
 async function fixture(t, settings = {}) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xuper-http-test-'));
-  for (const directory of ['js', 'api/lib', 'assets/original', 'config', 'css', 'data']) await fs.mkdir(path.join(root, directory), { recursive: true });
-  await fs.writeFile(path.join(root, 'index.html'), '<!doctype html><title>Xuper</title><input type="password" autocomplete="current-password">');
-  await fs.writeFile(path.join(root, 'js/access.js'), 'window.access=true;');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vidaa-http-test-'));
+  for (const directory of ['js', 'api', 'assets', 'config', 'css', 'legacy']) await fs.mkdir(path.join(root, directory), { recursive: true });
+  await fs.writeFile(path.join(root, 'index.html'), '<!doctype html><title>TVVIDAA</title><input type="password" autocomplete="current-password">');
+  await fs.writeFile(path.join(root, 'js/legacy-access.js'), 'window.legacy=true;');
   await fs.writeFile(path.join(root, 'js/app.js'), 'window.app=true;');
-  await fs.writeFile(path.join(root, 'config/api.js'), 'window.config=true;');
-  await fs.writeFile(path.join(root, 'css/access.css'), '.access-gate{}');
-  await fs.writeFile(path.join(root, 'config/api.production.js'), 'PRIVATE');
-  await fs.writeFile(path.join(root, 'api/lib/magis.js'), 'PRIVATE');
-  await fs.writeFile(path.join(root, 'assets/original/poster.png'), 'IMAGE');
+  await fs.writeFile(path.join(root, 'config/legacy-api.js'), 'window.legacy=true;');
+  await fs.writeFile(path.join(root, 'css/app.css'), '.vidaa{}');
+  await fs.writeFile(path.join(root, 'config/legacy-portal.js'), 'PRIVATE');
+  await fs.writeFile(path.join(root, 'api/private-source.js'), 'PRIVATE');
+  await fs.writeFile(path.join(root, 'assets/poster.png'), 'IMAGE');
   const calls = [];
   const server = createServer({
     root, publicOrigin: ORIGIN,
     accessPassword: settings.accessPassword, sessionSecret: settings.sessionSecret,
     apiHandler(req, res) {
-      calls.push({ method: req.query.method, query: req.query, body: req.body, forwarded: req.headers['x-forwarded-for'], runtime: req.headers['x-xuper-runtime'] });
+      calls.push({ method: req.query.method, query: req.query, body: req.body, forwarded: req.headers['x-forwarded-for'], runtime: req.headers['x-vidaa-runtime'] });
       res.status(200).json({ returnValue: true });
     },
     mediaHandler(req, res) {
@@ -49,7 +49,7 @@ async function fixture(t, settings = {}) {
       const req = http.request({
         host: '127.0.0.1', port: server.address().port, path: url,
         method: options.method || 'GET',
-        headers: Object.assign({ Host: 'xuper.example.com' }, options.headers)
+        headers: Object.assign({ Host: 'tv.example.test' }, options.headers)
       }, (res) => {
         const chunks = [];
         res.on('data', (chunk) => chunks.push(chunk));
@@ -62,43 +62,45 @@ async function fixture(t, settings = {}) {
   return { root, calls, request };
 }
 
-test('serves the original allowlisted assets and preserves HEAD/cache behavior', async (t) => {
+test('serves native TVVIDAA allowlisted assets and preserves HEAD/cache behavior', async (t) => {
   const f = await fixture(t);
   const page = await f.request('/?screen=detail&vod=3');
   assert.equal(page.status, 200);
-  assert.match(page.text, /<title>Xuper<\/title>/);
+  assert.match(page.text, /<title>TVVIDAA<\/title>/);
   assert.match(page.text, /autocomplete="current-password"/);
-  assert.equal((await f.request('/js/access.js')).status, 200);
-  assert.equal((await f.request('/css/access.css')).status, 200);
+  assert.equal((await f.request('/js/app.js')).status, 200);
+  assert.equal((await f.request('/css/app.css')).status, 200);
+  assert.equal((await f.request('/js/legacy-access.js')).status, 404);
+  assert.equal((await f.request('/config/legacy-api.js')).status, 404);
   assert.equal(page.headers['x-content-type-options'], 'nosniff');
   assert.match(page.headers['content-security-policy'], /object-src 'none'/);
-  const image = await f.request('/assets/original/poster.png');
+  const image = await f.request('/assets/poster.png');
   assert.equal(image.text, 'IMAGE');
   assert.equal(image.headers['content-type'], 'image/png');
   const head = await f.request('/js/app.js', { method: 'HEAD' });
   assert.equal(head.text, '');
   assert.equal(head.headers['content-length'], '16');
-  const cached = await f.request('/assets/original/poster.png', { headers: { 'If-None-Match': image.headers.etag } });
+  const cached = await f.request('/assets/poster.png', { headers: { 'If-None-Match': image.headers.etag } });
   assert.equal(cached.status, 304);
 });
 
 test('never serves private source, config variants, dotfiles or traversal paths', async (t) => {
   const f = await fixture(t);
-  for (const url of ['/api/lib/magis.js', '/config/api.production.js', '/AGENTS.md', '/.git/config', '/server/http-server.cjs', '/data/catalog.js', '/data/portal.js']) {
+  for (const url of ['/api/private-source.js', '/config/legacy-portal.js', '/AGENTS.md', '/.git/config', '/server/http-server.cjs', '/legacy/catalog.js', '/legacy/portal.js', '/js/webOSTV.js', '/css/style.css']) {
     const result = await f.request(url);
     assert.equal(result.status, 404, url);
     assert.doesNotMatch(result.text, /PRIVATE/);
   }
-  for (const url of ['/assets/../config/api.production.js', '/assets/%2e%2e/config/api.production.js', '/assets/%2f../config/api.production.js', '/assets/%5c..%5cconfig/api.production.js', '/assets/%00.png', '/assets/%ZZ.png']) {
+  for (const url of ['/assets/../config/legacy-portal.js', '/assets/%2e%2e/config/legacy-portal.js', '/assets/%2f../config/legacy-portal.js', '/assets/%5c..%5cconfig/legacy-portal.js', '/assets/%00.png', '/assets/%ZZ.png']) {
     assert.equal((await f.request(url)).status, 400, url);
   }
 });
 
 test('rejects symlinks even when they masquerade as a public image', async (t) => {
   const f = await fixture(t);
-  try { await fs.symlink(path.join(f.root, 'api/lib/magis.js'), path.join(f.root, 'assets/original/leak.png')); }
+  try { await fs.symlink(path.join(f.root, 'api/private-source.js'), path.join(f.root, 'assets/leak.png')); }
   catch (error) { if (error.code === 'EPERM') { t.skip('Windows does not permit this process to create symlinks'); return; } throw error; }
-  const result = await f.request('/assets/original/leak.png');
+  const result = await f.request('/assets/leak.png');
   assert.equal(result.status, 404);
   assert.doesNotMatch(result.text, /PRIVATE/);
 });
@@ -120,8 +122,8 @@ test('rejects hostile host/origin and forged runtime headers', async (t) => {
   const f = await fixture(t);
   assert.equal((await f.request('/api/ping', { headers: { Host: 'evil.example' } })).status, 421);
   assert.equal((await f.request('/api/ping', { headers: { Origin: 'https://evil.example' } })).status, 403);
-  assert.equal((await f.request('/api/ping', { headers: { Origin: 'http://xuper.example.com' } })).status, 403);
-  assert.equal((await f.request('/api/ping', { headers: { 'X-Xuper-Runtime': 'persistent', 'X-Forwarded-For': '203.0.113.2, 203.0.113.3' } })).status, 200);
+  assert.equal((await f.request('/api/ping', { headers: { Origin: 'http://tv.example.test' } })).status, 403);
+  assert.equal((await f.request('/api/ping', { headers: { 'X-TVVIDAA-Runtime': 'persistent', 'X-Forwarded-For': '203.0.113.2, 203.0.113.3' } })).status, 200);
   assert.equal(f.calls[0].runtime, undefined);
   assert.equal(f.calls[0].forwarded, '127.0.0.1');
 });

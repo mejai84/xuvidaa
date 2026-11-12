@@ -44,6 +44,6 @@ docker build -f deploy/hostinger/Dockerfile -t tvvidaa-web .
 
 ## Código histórico
 
-El directorio `webos/` conserva la implementación anterior como **archivo de referencia y rollback**, pero no se utiliza en el Docker ni en la interfaz web nueva. Se eliminará después de verificar la experiencia y la reproducción en el Hisense real, sin perder el mecanismo de restauración.
+La versión anterior de LG webOS/XuperTV está preservada en la rama `archive/xuper-webos-20261111` para revisión o restauración. Los archivos de esa implementación fueron retirados de la rama web activa y nunca se copian al Docker.
 
 El objetivo de esta etapa es que la versión distribuida funcione completamente en el navegador HTML5 de VIDAA. La publicación en la tienda oficial de aplicaciones VIDAA es una fase distinta.

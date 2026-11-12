@@ -12,16 +12,11 @@ const SESSION_COOKIE = 'xuvidaa_session';
 const SESSION_SECONDS = 8 * 60 * 60;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 10;
+// Only the native TVVIDAA HTML5 files are public; no LG/webOS client files.
 const PUBLIC_FILES = new Map([
   ['index.html', 'text/html; charset=utf-8'],
-  ['config/api.js', 'text/javascript; charset=utf-8'],
-  ['js/access.js', 'text/javascript; charset=utf-8'],
-  ['js/search-scope.js', 'text/javascript; charset=utf-8'],
   ['js/app.js', 'text/javascript; charset=utf-8'],
-  ['css/app.css', 'text/css; charset=utf-8'],
-  ['js/webOSTV.js', 'text/javascript; charset=utf-8'],
-  ['css/access.css', 'text/css; charset=utf-8'],
-  ['css/style.css', 'text/css; charset=utf-8']
+  ['css/app.css', 'text/css; charset=utf-8']
 ]);
 const ASSET_TYPES = new Map([
   ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'],
@@ -102,8 +97,8 @@ function sanitizeProxyHeaders(req) {
   req.headers['x-forwarded-for'] = source;
   delete req.headers['x-forwarded-host'];
   delete req.headers['x-forwarded-proto'];
-  // The existing LG relay is not installed by this standalone HTTP runtime.
-  delete req.headers['x-xuper-runtime'];
+  // Do not forward a client-controlled pseudo-runtime header to the catalog API.
+  delete req.headers['x-vidaa-runtime'];
 }
 
 async function readJson(req) {
@@ -172,8 +167,8 @@ function createServer(options) {
   const apiHandler = options.apiHandler;
   const mediaHandler = options.mediaHandler;
   if (!!accessPassword !== !!sessionSecret) throw new Error('La clave web y el secreto de sesión deben configurarse juntos.');
-  if (accessPassword && Buffer.byteLength(accessPassword) < 14) throw new Error('XUPER_WEB_PASSWORD debe tener al menos 14 caracteres.');
-  if (sessionSecret && Buffer.byteLength(sessionSecret) < 32) throw new Error('XUPER_SESSION_SECRET debe tener al menos 32 bytes.');
+  if (accessPassword && Buffer.byteLength(accessPassword) < 14) throw new Error('VIDAA_WEB_PASSWORD debe tener al menos 14 caracteres.');
+  if (sessionSecret && Buffer.byteLength(sessionSecret) < 32) throw new Error('VIDAA_SESSION_SECRET debe tener al menos 32 bytes.');
   if (typeof apiHandler !== 'function' || typeof mediaHandler !== 'function') throw new Error('Faltan los handlers HTTP.');
 
   const server = http.createServer({ maxHeaderSize: 48 * 1024, requestTimeout: 15000, headersTimeout: 10000 }, async (req, res) => {

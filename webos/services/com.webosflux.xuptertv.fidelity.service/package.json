@@ -1,7 +1,0 @@
-{
-  "name": "com.webosflux.xuptertv.fidelity.service",
-  "version": "2.2.2",
-  "description": "XuperTV portal catalog and playback resolver",
-  "main": "index.js",
-  "private": true
-}
