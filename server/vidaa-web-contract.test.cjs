@@ -87,3 +87,42 @@ test('family UX has profile switch, favorites, playback and diagnostics callback
   assert.match(app,/function resolveVodPlayback/);
   assert.match(app,/function refreshDiagnostics/);
 });
+
+
+test('password visibility button is accessible, shows an eye and keeps submit separate', () => {
+  const css = fs.readFileSync(path.join(root,'web/css/app.css'),'utf8');
+  assert.match(html, /id="password" type="password" autocomplete="current-password"/);
+  assert.match(html, /id="passwordToggle" class="password-toggle" type="button"/);
+  assert.match(html, /aria-label="Mostrar contraseña" aria-pressed="false"/);
+  assert.match(html, /class="eye-slash"/);
+  assert.match(css, /\.password-field\s*\{ position: relative;/);
+  assert.match(css, /\.password-toggle\.is-visible \.eye-slash \{ display: block; \}/);
+  assert.match(app, /\$\('passwordToggle'\)\.addEventListener\('click'/);
+  assert.match(app, /setPasswordVisible\(\$\('password'\)\.type === 'password'\)/);
+});
+
+test('eye toggle changes input type and accessible state without changing password value', () => {
+  const vm = require('node:vm');
+  const helper = /  function setPasswordVisible\(visible\) \{[\s\S]*?\n  \}/.exec(app);
+  assert.ok(helper, 'toggle helper must exist');
+  const field = {type:'password', value:'private-value-with-@-symbol'};
+  const attrs = {};
+  const button = {
+    className:'password-toggle', title:'',
+    setAttribute(name,value) { attrs[name]=value; }
+  };
+  const context = {$: id => id === 'password' ? field : id === 'passwordToggle' ? button : null};
+  vm.runInNewContext(helper[0] + '\nsetPasswordVisible(true);', context);
+  assert.equal(field.type,'text');
+  assert.equal(field.value,'private-value-with-@-symbol');
+  assert.equal(attrs['aria-pressed'],'true');
+  assert.equal(attrs['aria-label'],'Ocultar contraseña');
+  assert.equal(button.className,'password-toggle is-visible');
+  vm.runInNewContext(helper[0] + '\nsetPasswordVisible(false);', context);
+  assert.equal(field.type,'password');
+  assert.equal(field.value,'private-value-with-@-symbol');
+  assert.equal(attrs['aria-pressed'],'false');
+  assert.equal(attrs['aria-label'],'Mostrar contraseña');
+  assert.equal(button.className,'password-toggle');
+  assert.match(app, /if\(document\.hidden\) \{\s*setPasswordVisible\(false\)/);
+});
