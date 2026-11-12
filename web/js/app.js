@@ -22,6 +22,14 @@
   function show(id, visible) { $(id).hidden = !visible; }
   function text(id, value) { $(id).textContent = value || ''; }
   function error(message) { text('notice', message); }
+  function showLogin(message) {
+    show('splash', false);
+    show('shell', false);
+    show('auth', true);
+    state.screen = 'login';
+    text('loginError', message || '');
+    $('password').focus();
+  }
   function api(method, params, done) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/' + method, true);
@@ -49,15 +57,16 @@
       var result = {};
       try { result = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
       if (xhr.status === 200 && result.authenticated) { enter(); }
-      else { show('auth', true); show('shell', false); $('password').focus(); }
+      else if (xhr.status === 200) { showLogin(''); }
+      else { showLogin('El servidor no pudo comprobar tu sesión (HTTP ' + xhr.status + ').'); }
     };
-    xhr.onerror = function () {
-      show('auth', true);
-      text('loginError','No se pudo conectar con el servidor.');
-    };
-    xhr.send();
+    xhr.onerror = function () { showLogin('No se pudo conectar con el servidor.'); };
+    xhr.ontimeout = function () { showLogin('La conexión tardó demasiado. Intenta ingresar nuevamente.'); };
+    try { xhr.send(); }
+    catch (_) { showLogin('No se pudo iniciar la conexión.'); }
   }
   function enter() {
+    show('splash', false);
     show('auth', false);
     show('shell', true);
     show('detail', false);
@@ -140,14 +149,18 @@
     var id=++state.requestId, section=state.section;
     state.busy=true;
     show('more', false);
+    show('catalogLoader', !append);
     if (!append) $('results').textContent='';
-    error('Cargando '+(section==='tv'?'canales':section==='movies'?'películas':'series')+'…');
+    text('catalogLoaderText', 'Cargando ' +
+      (section==='tv'?'canales':section==='movies'?'películas':'series') + '…');
+    error(append ? 'Cargando más resultados…' : '');
     var input = {pageNum:page,pageSize:24,search:state.query};
     if (section==='tv') { input.columnId=state.category; }
     else { input.category=state.category; }
     api(endpoints[section],input,function(err,result) {
       if (id!==state.requestId || section!==state.section || state.screen!=='catalog') return;
       state.busy=false;
+      show('catalogLoader', false);
       if (err) {
         error(err);
         text('connection','Servicio no disponible');
