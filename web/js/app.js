@@ -442,7 +442,7 @@
     state.hls.attachMedia($('video'));
     state.hls.on(window.Hls.Events.MANIFEST_PARSED,function(){playCurrentVideo();});
     state.hls.on(window.Hls.Events.ERROR,function(_event,data){
-      if(data && data.fatal && state.screen==='player' && playerKind==='tv') tryNextLiveSource('La señal HLS falló.');
+      if(data && data.fatal && state.screen==='player' && playerKind==='tv' && state.hls) tryNextLiveSource('La señal HLS falló.');
     });
   }
   var hlsScriptLoading=false, hlsScriptCallbacks=[];
@@ -501,6 +501,9 @@
     if(state.liveSourceIndex+1 < state.liveSourceCount) {
       state.liveSourceIndex++;
       state.retryCount=0;
+      if(state.streamTimer) { clearTimeout(state.streamTimer); state.streamTimer=null; }
+      destroyHls();
+      try { $('video').pause(); $('video').removeAttribute('src'); $('video').load(); } catch(_) {}
       text('playerMessage',reason+' Probando señal alternativa '+(state.liveSourceIndex+1)+'/'+state.liveSourceCount+'…');
       playResolved(state.currentChannel);
     } else {
@@ -569,6 +572,8 @@
   function retryPlayback() {
     if (state.screen!=='player') return;
     state.retryCount=0;
+    state.liveSourceIndex=0;
+    state.liveSourceCount=1;
     if (playerItem) {
       stopVideo();
       resolveVodPlayback();
