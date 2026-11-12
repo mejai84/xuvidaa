@@ -179,7 +179,16 @@ async function handler(req, res) {
         return respond(res,415,{errorText:'La fuente privada no tiene un origen HTTPS o HTTP autorizado'});
       }
       if (!['video/mp4','application/vnd.apple.mpegurl','video/mp2t'].includes(result.mime)) {
-        return respond(res,415,{errorText:'Formato no compatible con reproducción web VIDAA'});
+        // Do not mislabel unsupported containers as MP4 or disclose private URLs.
+        const format = result.mime === 'video/x-matroska' ? 'MKV' :
+          result.mime === 'video/x-msvideo' ? 'AVI' : 'desconocido';
+        return respond(res,415,{
+          errorText: format === 'desconocido'
+            ? 'El formato de este video no es compatible con el reproductor web VIDAA'
+            : 'El video está en formato '+format+', no compatible con el reproductor web VIDAA. Prueba otra fuente en MP4 o HLS.',
+          errorCode: 'VOD_UNSUPPORTED_CONTAINER',
+          mediaFormat: format
+        });
       }
       const exp = Date.now() + 8 * 60 * 60 * 1000;
       const issued = registry.register({
