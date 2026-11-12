@@ -28,10 +28,21 @@
   function show(id, visible) { $(id).hidden = !visible; }
   function text(id, value) { $(id).textContent = value || ''; }
   function error(message) { text('notice', message); }
+  function setPasswordVisible(visible) {
+    var field = $('password');
+    var toggle = $('passwordToggle');
+    var label = visible ? 'Ocultar contraseña' : 'Mostrar contraseña';
+    field.type = visible ? 'text' : 'password';
+    toggle.className = visible ? 'password-toggle is-visible' : 'password-toggle';
+    toggle.setAttribute('aria-pressed', visible ? 'true' : 'false');
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+  }
   function showLogin(message) {
     show('splash', false);
     show('shell', false);
     show('auth', true);
+    setPasswordVisible(false);
     state.screen = 'login';
     text('loginError', message || '');
     $('password').focus();
@@ -93,6 +104,7 @@
         return;
       }
       $('password').value = '';
+      setPasswordVisible(false);
       enter();
     });
   }
@@ -105,6 +117,7 @@
       show('player', false);
       show('detail', false);
       show('auth', true);
+      setPasswordVisible(false);
       $('password').focus();
     });
   }
@@ -667,6 +680,9 @@
     }
   }
   $('loginForm').addEventListener('submit',login);
+  $('passwordToggle').addEventListener('click',function(){
+    setPasswordVisible($('password').type === 'password');
+  });
   $('profile').addEventListener('change',function(){
     if(!family || !family.pickProfile(this.value))return;
     if(state.screen==='player')closePlayer();
@@ -735,7 +751,10 @@
     }
   });
   document.addEventListener('visibilitychange',function(){
-    if(document.hidden && state.screen==='player')$('video').pause();
+    if(document.hidden) {
+      setPasswordVisible(false);
+      if(state.screen==='player')$('video').pause();
+    }
   });
   window.addEventListener('pagehide',stopVideo);
   sessionCheck();

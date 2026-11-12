@@ -56,6 +56,33 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .auth-card p { color: #c0cce0; line-height: 1.5; }
 .auth-card label { display: block; margin: 22px 0 9px; color: #fff; }
 .auth-card input { width: 100%; height: 55px; padding: 0 16px; background: #080e1c; color: #fff; border: 1px solid #52617d; border-radius: 9px; font-size: 21px; }
+/* Login password visibility: a real focusable control, sized for touch and D-pad. */
+.password-field { position: relative; width: 100%; }
+.auth-card .password-field input { display: block; width: 100%; padding-right: 66px; }
+.password-toggle {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  width: 48px;
+  height: 46px;
+  margin-top: -23px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #c2d3f0;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.password-toggle:hover, .password-toggle:focus { color: #fff; background: #283a58; }
+.password-toggle svg { pointer-events: none; }
+.password-toggle .eye-slash { display: none; }
+.password-toggle.is-visible .eye-slash { display: block; }
 .primary { min-height: 54px; padding: 12px 22px; background: #425eff; color: white; border: 0; border-radius: 9px; font-weight: bold; }
 .auth-card .primary { display: block; width: 100%; margin-top: 19px; }
 .error { min-height: 20px; color: #ffb0bb !important; }
