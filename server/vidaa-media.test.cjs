@@ -104,6 +104,17 @@ test('pinned HTTPS lookup supports Node 22 all:true and single-address callback 
   assert.deepEqual(await lookup({all:false}),[null,'1.1.1.1',4]);
 });
 
+test('MPEG-TS reference returns a bounded synthetic HLS playlist for VIDAA players',async()=>{
+  const t=token('https://cdn.example/live.ts','video/mp2t');
+  const r=await mediaRequest(t,{query:{manifest:'1'}});
+  assert.equal(r.status,200);
+  assert.match(r.headers['content-type'],/application\/vnd\.apple\.mpegurl/);
+  assert.match(r.body,/^#EXTM3U/);
+  assert.match(r.body,/#EXTINF:120,/);
+  assert.match(r.body,/https:\/\/tv\.example\.test\/api\/media\?token=v1\./);
+  assert.doesNotMatch(r.body,/cdn\.example|live\.ts/);
+});
+
 test('Node 22 lookup compatibility never permits a mixed public and private DNS result',async()=>{
   const t=token('https://cdn.example/video.mp4');
   const response=await mediaRequest(t,{addresses:[{address:'1.1.1.1',family:4},{address:'10.2.3.4',family:4}]});

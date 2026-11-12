@@ -320,9 +320,10 @@ async function handler(req, res) {
         headers:{},duration:result.duration||0
       },exp);
       if (!issued) return respond(res,503,{errorText:'No se pudo preparar el video'});
+      const isHls = result.isHls || result.mime === 'video/mp2t';
       return respond(res,200,{
-        contentId:id,isHls:result.isHls,mime:result.mime,
-        mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(result.isHls?'&manifest=1':''),
+        contentId:id,isHls,mime:result.mime,
+        mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(isHls?'&manifest=1':''),
         mediaExpiresAt:issued.exp,
         title:String(result.item && result.item.title || '')
       });
@@ -344,8 +345,9 @@ async function handler(req, res) {
           source:'live',headers:{},mime,duration:0
         },Date.now()+15*60*1000);
         if (!issued) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
-        return respond(res,200,{name:ch.name,isHls:hls,mime,
-          mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(hls?'&manifest=1':''),
+        const useHls = hls || mime === 'video/mp2t';
+        return respond(res,200,{name:ch.name,isHls:useHls,mime,
+          mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(useHls?'&manifest=1':''),
           mediaExpiresAt:issued.exp,sourceIndex:0,sourceCount:1});
       }
       if (!/^[A-Za-z0-9._-]{2,100}$/.test(code)) return respond(res,400,{errorText:'Canal inválido'});
@@ -373,9 +375,10 @@ async function handler(req, res) {
         source:'live',headers:{},mime,duration:0
       },Date.now()+15*60*1000);
       if (!issued) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
+      const useHls = hls || mime === 'video/mp2t';
       return respond(res,200,{
-        name:String(ch.name||'TV'),isHls:hls,mime,
-        mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(hls?'&manifest=1':''),
+        name:String(ch.name||'TV'),isHls:useHls,mime,
+        mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(useHls?'&manifest=1':''),
         mediaExpiresAt:issued.exp,sourceIndex:requested,sourceCount:compatible.length
       });
     }

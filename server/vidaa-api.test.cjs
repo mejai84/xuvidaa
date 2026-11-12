@@ -131,6 +131,38 @@ test('encrypted IPTV resolution returns only protected same-origin media URL',as
   } finally {api.live.getChannel=saved;}
 });
 
+test('live MPEG-TS signals resolve through the synthetic HLS manifest',async()=>{
+  const saved=api.live.getChannel;
+  api.live.getChannel=async()=>({name:'Canal TS',hasStream:true,streamUrl:'https://cdn.example/live.ts',
+    streams:[{url:'https://cdn.example/live.ts'}]});
+  try {
+    const r=await invoke('resolveLive',{channelCode:'CanalTS.co'});
+    assert.equal(r.status,200);
+    assert.equal(r.body.isHls,true);
+    assert.match(r.body.mediaUrl,/&manifest=1$/);
+    assert.doesNotMatch(JSON.stringify(r.body),/cdn\.example|live\.ts/);
+  } finally {api.live.getChannel=saved;}
+});
+
+test('private sports filter returns only verified channels without exposing provider paths',async()=>{
+  const oldChannels=api.vod.getLiveChannels,oldLiveHealth=api.liveHealth.get('priv-0123456789abcdef');
+  api.vod.getLiveChannels=async()=>[{id:'priv-0123456789abcdef',name:'ESPN',category:'Deportes',
+    logo:null,streamPath:'/live/101.m3u8',hasStream:true}];
+  api.liveHealth.set('priv-0123456789abcdef',{status:'available',until:Date.now()+60000});
+  try {
+    const r=await invoke('liveChannels',{columnId:'private-sports',country:'ALL',workingOnly:true});
+    assert.equal(r.status,200);
+    assert.equal(r.body.total,1);
+    assert.equal(r.body.channels.length,1);
+    assert.equal(r.body.channels[0].signalStatus,'available');
+    assert.doesNotMatch(JSON.stringify(r.body),/streamPath|provider\.example|101\.m3u8/);
+  } finally {
+    api.vod.getLiveChannels=oldChannels;
+    if(oldLiveHealth)api.liveHealth.set('priv-0123456789abcdef',oldLiveHealth);
+    else api.liveHealth.delete('priv-0123456789abcdef');
+  }
+});
+
 test('private movie playback resolves only a catalog ID into an opaque same-origin reference',async()=>{
   const saved=api.vod.resolveStream, configured=api.vod.isConfigured;
   api.vod.isConfigured=()=>true;
@@ -150,6 +182,12 @@ test('private movie playback resolves only a catalog ID into an opaque same-orig
     assert.deepEqual(Object.keys(decoded).sort(),['exp','ref']);
     assert.doesNotMatch(JSON.stringify(r.body),/video\.example|user-secret|password-secret/);
     assert.equal(registry.lookup(token).url,'https://video.example/movie/user-secret/password-secret/123.mp4');
+    api.vod.resolveStream=async()=>({found:true,streamUrl:'https://video.example/live/u/p/123.ts',
+      item:{id:'mov-12345',title:'Demo TS'},mime:'video/mp2t',type:'live',isHls:false});
+    const ts=await invoke('resolve',{contentId:'mov-12345'});
+    assert.equal(ts.status,200,JSON.stringify(ts.body));
+    assert.equal(ts.body.isHls,true);
+    assert.match(ts.body.mediaUrl,/&manifest=1$/);
   } finally {api.vod.resolveStream=saved;api.vod.isConfigured=configured;}
 });
 
