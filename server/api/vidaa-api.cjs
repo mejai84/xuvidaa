@@ -121,9 +121,17 @@ async function handler(req, res) {
     if (method === 'ping') return respond(res,200,{service:'TVVIDAA-web',ready:true});
     if (method === 'liveCategories') {
       const r = await live.getCategories();
+      const privateSports = vod.isConfigured() ? [{id:'private-sports',name:'Deportes M3U'}] : [];
       return respond(res,200,{stale:!!r.stale,warning:r.stale?'Se muestra el catálogo IPTV-org guardado.':'',countries:(r.countries||[]).map(c=>({code:String(c.code||''),name:String(c.name||c.code||'')})),categories:(r.categories||[]).map(c=>({
         id:String(c.id || ''),name:String(c.name || c.id || '')
-      }))});
+      })).concat(privateSports)});
+    }
+    if (method === 'liveChannels' && String(input.columnId || '').toLowerCase() === 'private-sports') {
+      const all = (await vod.getLiveChannels()).filter(ch => ch.category === 'Deportes');
+      const filtered = all.filter(ch => !search || ch.name.toLowerCase().includes(search.toLowerCase()));
+      const start = (pageNum - 1) * pageSize;
+      return respond(res,200,{channels:filtered.slice(start,start+pageSize).map(safeChannel),
+        pageNum,total:filtered.length,hasMore:start+pageSize<filtered.length});
     }
     if (method === 'liveChannels') {
       const result = await live.getChannels({
@@ -217,6 +225,25 @@ async function handler(req, res) {
     }
     if (method === 'resolveLive') {
       const code=String(input.channelCode||'').trim();
+      if (/^priv-[a-f0-9]{16}$/.test(code)) {
+        const channels = await vod.getLiveChannels();
+        const ch = channels.find(item => item.id === code);
+        if (!ch || !ch.hasStream) return respond(res,404,{errorText:'Canal privado no encontrado'});
+        const urlString = vod.reconstructLiveUrl(ch.streamPath);
+        let uri;
+        try { uri = new URL(urlString); } catch (_) { return respond(res,415,{errorText:'Origen privado no disponible'}); }
+        if (!permittedMediaOrigin(uri) || isUnsafeHost(uri.hostname)) return respond(res,415,{errorText:'Origen privado no autorizado'});
+        const hls = /\\.m3u8$/i.test(uri.pathname);
+        const mime = hls ? 'application/vnd.apple.mpegurl' : 'video/mp2t';
+        const issued = registry.register({
+          url:uri.toString(),hosts:[uri.hostname.toLowerCase()],
+          source:'live',headers:{},mime,duration:0
+        },Date.now()+15*60*1000);
+        if (!issued) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
+        return respond(res,200,{name:ch.name,isHls:hls,mime,
+          mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(hls?'&manifest=1':''),
+          mediaExpiresAt:issued.exp,sourceIndex:0,sourceCount:1});
+      }
       if (!/^[A-Za-z0-9._-]{2,100}$/.test(code)) return respond(res,400,{errorText:'Canal inválido'});
       const ch=await live.getChannel(code);
       if (!ch || !ch.hasStream) return respond(res,404,{errorText:'Canal sin señal registrada'});
