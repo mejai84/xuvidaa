@@ -1,75 +1,57 @@
-# XuperTV en Hostinger con Dokploy
+# TVVIDAA — aplicación HTML5 web para Hisense VIDAA
 
-Este despliegue aloja la interfaz y su API en el VPS. La aplicacion corre en
-un servicio Docker Compose propio conectado solo a la red privada
-`xuvidaa-tv-private`, que debe existir previamente en Dokploy. Traefik recibe
-el trafico HTTPS de `tv.rfcsas.com` por esa red y lo dirige al puerto interno
-3000 de XuperTV. El Compose no conecta XuperTV a `dokploy-network` ni publica
-puertos del VPS.
+## Arquitectura actual (sin Luna ni webOS en ejecución)
 
-## Crear el servicio en Dokploy
+- **Interfaz:** `web/index.html`, `web/js/app.js`, `web/css/app.css`.
+- **Servidor:** `server/http-server.cjs` (Node.js 22), que sirve el directorio `web/`.
+- **API propia:** `server/api/vidaa-api.cjs`, accesible por `POST /api/{metodo}`.
+- **Fuentes:** IPTV-org para TV en vivo; M3U privada configurada en el VPS para películas/series.
+- **Medios:** `server/api/media.cjs`, relay HTTPS con referencias temporales cifradas. La UI nunca recibe la contraseña del proveedor.
+- **Seguridad:** sesiones con cookies HttpOnly, limitación de intentos, cabeceras de seguridad, tokens multimedia cifrados y protección SSRF/DNS.
+- **Compatibilidad:** HTML5/JavaScript sin Luna, sin servicio de LG ni paquetes IPK; control D-pad por eventos de teclado (Arriba, Abajo, Izquierda, Derecha, OK y Back).
+- **Diseño:** TV a pantalla completa y vista adaptable al móvil; tres secciones con búsqueda propia.
 
-1. Crea un proyecto y un servicio **Docker Compose** nuevos, llamado
-   `xuvidaa-tv`, conectado al repositorio `mejai84/xuvidaa`.
-2. Selecciona la rama de despliegue `hostinger-vps` y la ruta Compose
-   `deploy/hostinger/compose.yaml`.
-3. Usa el modo Docker Compose, no Docker Stack: la imagen se construye desde el
-   Dockerfile del repositorio.
-4. Confirma que existe la red overlay attachable `xuvidaa-tv-private`; el
-   despliegue actual ya la usa. Conecta Traefik a esta red para que pueda
-   alcanzar `xuper`.
-5. No agregues `dokploy-network` al servicio. Las etiquetas Traefik del
-   Compose publican solo `tv.rfcsas.com` por HTTPS.
-6. Agrega las variables privadas indicadas abajo y despliega.
+El directorio histórico `webos/` permanece en el repositorio únicamente como referencia y posible rollback; **no se copia al Docker ni se utiliza para servir esta nueva interfaz**. No borrar los archivos antiguos hasta validar el despliegue en el televisor físico.
 
-La red dedicada mantiene XuperTV separado de Figueroa. No cambies la red,
-etiquetas ni configuracion global de los otros servicios. Traefik es el unico
-punto compartido y solo enruta la solicitud al contenedor XuperTV.
+## Despliegue Dokploy
 
-## Variables privadas de Dokploy
+Servicio exclusivo `xuvidaa-tv`, repositorio `mejai84/xuvidaa`, rama `hostinger-vps`, archivo `deploy/hostinger/compose.yaml`, dominio `https://tv.rfcsas.com/`.
 
-- `PUBLIC_BASE_URL`: `https://tv.rfcsas.com`
-- `MEDIA_TOKEN_SECRET`: secreto aleatorio de al menos 32 caracteres.
-- `XUPER_SESSION_SECRET`: otro secreto aleatorio independiente de al menos 32
-  caracteres.
-- `XUPER_WEB_PASSWORD`: clave de acceso de al menos 14 caracteres. Guárdala
-  como variable privada del proyecto; no la pongas en Git, en la URL ni en
-  archivos servidos al navegador.
-- `MEDIA_ALLOWED_HOSTS`: opcional; déjala vacía para permitir solo los hosts
-  HTTPS que el portal entrega y que quedan firmados por la API.
+No tocar los demás servicios o redes del VPS. El Compose mantiene la red `xuvidaa-tv-private` y monta el volumen persistente `xuvidaa-catalog-cache` para `server/.cache`. Traefik entrega HTTPS.
 
-Puedes generar los secretos en un equipo confiable con Node.js:
+### Variables de entorno (en Dokploy, no en Git)
+
+| Variable | Función |
+| --- | --- |
+| `PUBLIC_BASE_URL` | `https://tv.rfcsas.com` |
+| `MEDIA_TOKEN_SECRET` | Secreto aleatorio de al menos 32 caracteres |
+| `VIDAA_WEB_PASSWORD` | Contraseña web de al menos 14 caracteres |
+| `VIDAA_SESSION_SECRET` | Secreto de sesión diferente, al menos 32 caracteres |
+| `IPTV_COUNTRY` | `CO` |
+| `IPTV_LANG` | `spa` |
+| `IPTV_EXCLUDE_NSFW` | `true` |
+| `M3U_BASE_URL`, `M3U_USERNAME`, `M3U_PASSWORD`, `M3U_TYPE` | Datos privados del proveedor M3U |
+
+Temporalmente, la configuración acepta `XUPER_WEB_PASSWORD` y `XUPER_SESSION_SECRET` ya existentes, de forma que no es necesario exponer ni volver a escribir secretos durante la transición. Renombrarlos en Dokploy tras validar el despliegue, y eliminar entonces las variables antiguas.
+
+El modo sin contraseña es **opcional y no está activado por defecto**. Requiere configurar explícitamente `VIDAA_PASSWORDLESS=true` y `VIDAA_PUBLIC_ACCESS_ACK=yes`, lo que permite que cualquiera con acceso al sitio consulte los catálogos; si el uso es familiar, se recomienda mantener la autenticación u otra barrera de acceso.
+
+## Pruebas
 
 ```sh
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+node --test server/*.test.cjs server/providers/*.test.cjs tools/*.test.cjs
+docker build -f deploy/hostinger/Dockerfile -t tvvidaa-web .
+docker compose -f deploy/hostinger/compose.yaml config --quiet
 ```
 
-Ejecuta el comando por separado para `MEDIA_TOKEN_SECRET` y
-`XUPER_SESSION_SECRET`. La contraseña de acceso no debe ser la misma que esos
-secretos.
+Antes de publicar: ejecutar CI, verificar `/healthz`, `/api/session`, `/api/liveCategories`, `/api/liveChannels`, `/api/m3uMovies`, `/api/m3uSeries` con sesión autorizada, y probar señal HLS/sonido en un dispositivo VIDAA real.
 
-## Verificación
+**Estado de reproducción VOD:** el catálogo M3U muestra películas, series, temporadas y episodios, pero `POST /api/resolve` devuelve HTTP 501 intencionalmente. Activarlo requiere completar las verificaciones de seguridad de reproducción y recuperación del índice privado en frío. No confundir portada/catálogo disponible con reproducción verificada.
 
-Después de desplegar, comprueba en el navegador:
+## Rollback
 
-- `https://tv.rfcsas.com/healthz` responde `{"ready":true}`.
-- La página muestra el formulario de acceso; la contraseña se envía por HTTPS
-  en el cuerpo de una solicitud POST, nunca en la barra de direcciones.
-- Tras ingresar, el catálogo solicita datos reales al portal desde el VPS.
-- La reproducción pasa por el relay del VPS. La compatibilidad de video depende
-  del formato autorizado que entregue el portal y del navegador del TV.
+Si un despliegue falla en VIDAA, restaurar la revisión anterior del contenedor `xuvidaa-tv` desde Dokploy. No borrar volúmenes, secretos ni datos de catálogo. El código heredado permanece en Git como referencia de rollback.
 
-La comprobación de salud solo confirma que el proceso HTTP está activo. Si la
-sesión del portal devuelve `portal100024`, el proveedor está rechazando la IP o
-la región del VPS; Dokploy, DNS y CORS no pueden corregir esa respuesta.
+## Instalación como app nativa de la tienda VIDAA
 
-Modo Fluido requiere el relay FFmpeg local de webOS y no forma parte de esta
-edición web. El contenedor no necesita una base de datos, volúmenes ni acceso a
-los contenedores de Figueroa.
-
-## Actualizar o detener XuperTV
-
-Los despliegues se gestionan desde el servicio `xuvidaa-tv` en Dokploy. Para
-actualizar, publica los cambios en la rama `hostinger-vps` y usa Redeploy. Para
-detener XuperTV, detén solo ese servicio en Dokploy; no hace falta reiniciar el
-VPS ni tocar los otros proyectos.
+Esta versión funciona como **sitio web HTML5 por HTTPS en el navegador del televisor**. Publicarla en una tienda oficial VIDAA requiere un proceso adicional con el programa de desarrolladores/partners; no se presupone que abrir la URL la instale en el sistema.
