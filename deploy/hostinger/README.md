@@ -39,14 +39,14 @@ El modo sin contraseña es **opcional y no está activado por defecto**. Requier
 ## Pruebas
 
 ```sh
-node --test server/*.test.cjs server/providers/*.test.cjs tools/*.test.cjs
+node --test server/*.test.cjs server/providers/*.test.cjs
 docker build -f deploy/hostinger/Dockerfile -t tvvidaa-web .
 docker compose -f deploy/hostinger/compose.yaml config --quiet
 ```
 
 Antes de publicar: ejecutar CI, verificar `/healthz`, `/api/session`, `/api/liveCategories`, `/api/liveChannels`, `/api/m3uMovies`, `/api/m3uSeries` con sesión autorizada, y probar señal HLS/sonido en un dispositivo VIDAA real.
 
-**Estado de reproducción VOD:** el catálogo M3U muestra películas, series, temporadas y episodios, pero `POST /api/resolve` devuelve HTTP 501 intencionalmente. Activarlo requiere completar las verificaciones de seguridad de reproducción y recuperación del índice privado en frío. No confundir portada/catálogo disponible con reproducción verificada.
+**Reproducción VOD:** `POST /api/resolve` emite referencias opacas para películas y episodios M3U que tengan una fuente HTTPS en formato MP4, HLS o TS. Los secretos quedan en la memoria del servidor; `server/api/media.cjs` valida DNS y conserva `Range`/206, y reescribe HLS. Las pruebas automatizadas cubren esos flujos sin usar credenciales reales. **La compatibilidad visual, audio y los formatos del proveedor real están pendientes de probar en Hisense VIDAA.** Las referencias dejan de ser válidas al reiniciar el contenedor; el cliente puede solicitar otra referencia. No asumir que todos los MKV/AVI se reproducen.
 
 ## Rollback
 
@@ -55,3 +55,7 @@ Si un despliegue falla en VIDAA, restaurar la revisión anterior del contenedor 
 ## Instalación como app nativa de la tienda VIDAA
 
 Esta versión funciona como **sitio web HTML5 por HTTPS en el navegador del televisor**. Publicarla en una tienda oficial VIDAA requiere un proceso adicional con el programa de desarrolladores/partners; no se presupone que abrir la URL la instale en el sistema.
+
+### Migración de VPS antes de aplicar los cambios
+
+El contenedor histórico se llama `xuvidaa-tv-xuper-1` y Compose lo creó desde `/opt/xuvidaa-tv/deploy/hostinger/compose.yaml`, no necesariamente desde un proyecto Dokploy. El Compose actual usa el servicio `vidaa`, por lo que **no debe desplegarse junto al `xuper` antiguo con el mismo router Traefik**. Validar repositorio, `.env`, volúmenes, redes, capturar rollback y reemplazarlo controladamente mediante Docker Compose. No publicar valores de `.env` en chats/logs. Rotar los secretos que quedaron expuestos en un `docker inspect` anterior.
