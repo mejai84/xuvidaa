@@ -36,6 +36,7 @@
           'sha384-z+tuLqMWl1/cPv7O+39RO0EURSNvorimpcCaMgeNwU+qFBx+AlUIl7jaAwg0cYil')
           .catch(function () { return null; });
       })
+      .then(function () { return loadScript('/js/search-scope.js'); })
       .then(function () { return loadScript('/js/app.js'); })
       .catch(function () {
         started = false;
