@@ -6,7 +6,7 @@ const net = require('node:net');
 const { IptvOrgProvider } = require('../providers/iptvOrgProvider.cjs');
 const { M3uProvider } = require('../providers/m3uProvider.cjs');
 const registry = require('./media-registry.cjs');
-const {permittedMediaOrigin} = require('./lib/vod-origin-policy.cjs');
+const {permittedMediaOrigin,permittedLiveOrigin} = require('./lib/vod-origin-policy.cjs');
 
 const cacheDir = path.join(__dirname, '..', '.cache');
 const live = new IptvOrgProvider({
@@ -211,28 +211,30 @@ async function handler(req, res) {
       if (!ch || !ch.hasStream) return respond(res,404,{errorText:'Canal sin señal registrada'});
       const candidates=Array.isArray(ch.streams)?ch.streams:[];
       const streams=candidates.concat(ch.streamUrl?[{url:ch.streamUrl}]:[]);
-      let selected=null;
+      const compatible=[];
+      const seen=new Set();
       for (const candidate of streams) {
         if (!candidate || !candidate.url) continue;
         let uri;
         try { uri=new URL(candidate.url); } catch (_) { continue; }
-        if (uri.protocol !== 'https:' || uri.username || uri.password ||
-            isUnsafeHost(uri.hostname) || uri.port && uri.port !== '443') continue;
-        selected=uri;
-        break;
+        if (!permittedLiveOrigin(uri) || isUnsafeHost(uri.hostname)) continue;
+        if (!seen.has(uri.toString())) { seen.add(uri.toString()); compatible.push(uri); }
       }
-      if (!selected) return respond(res,415,{errorText:'No existe un origen HTTPS compatible para este canal'});
+      if (!compatible.length) return respond(res,415,{errorText:'No hay una fuente compatible autorizada para este canal'});
+      const requested=Number(input.sourceIndex || 0);
+      if (!Number.isInteger(requested) || requested<0 || requested>=compatible.length) return respond(res,404,{errorText:'No hay más señales disponibles para este canal'});
+      const selected=compatible[requested];
       const hls=/\.m3u8$/i.test(selected.pathname);
       const mime=hls?'application/vnd.apple.mpegurl':'video/mp2t';
       const issued=registry.register({
         url:selected.toString(),hosts:[selected.hostname.toLowerCase()],
-        headers:{},mime,duration:0
+        source:'live',headers:{},mime,duration:0
       },Date.now()+15*60*1000);
       if (!issued) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
       return respond(res,200,{
         name:String(ch.name||'TV'),isHls:hls,mime,
         mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(hls?'&manifest=1':''),
-        mediaExpiresAt:issued.exp
+        mediaExpiresAt:issued.exp,sourceIndex:requested,sourceCount:compatible.length
       });
     }
   } catch (_) {

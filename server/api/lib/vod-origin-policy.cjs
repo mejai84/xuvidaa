@@ -11,9 +11,20 @@ function allowedHttpOrigin(uri) {
     .map(s=>s.trim().toLowerCase()).filter(Boolean);
   return allowed.includes(host + ':' + port);
 }
+function allowedHttpLiveOrigin(uri) {
+  if (!uri || uri.protocol !== 'http:' || process.env.VIDAA_HTTP_LIVE_ACK !== 'yes') return false;
+  const host = uri.hostname.toLowerCase();
+  if (!host.includes('.') || host.endsWith('.') || net.isIP(host) || uri.username || uri.password) return false;
+  return true;
+}
+function permittedLiveOrigin(uri) {
+  if (!uri || uri.username || uri.password) return false;
+  if (uri.protocol === 'https:') return !uri.port || uri.port === '443';
+  return allowedHttpLiveOrigin(uri);
+}
 function permittedMediaOrigin(uri) {
   if (!uri || uri.username || uri.password) return false;
   if (uri.protocol === 'https:') return !uri.port || uri.port === '443';
   return allowedHttpOrigin(uri);
 }
-module.exports={allowedHttpOrigin,permittedMediaOrigin};
+module.exports={allowedHttpOrigin,allowedHttpLiveOrigin,permittedLiveOrigin,permittedMediaOrigin};

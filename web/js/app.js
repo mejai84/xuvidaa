@@ -23,7 +23,7 @@
     section: 'tv', query: '', category: 'all', country: 'CO', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
     hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
-    view: 'all', lastFailure: '', retryCount: 0, diagnosticSeq: 0, playbackSeq: 0
+    view: 'all', lastFailure: '', retryCount: 0, liveSourceIndex: 0, liveSourceCount: 1, liveWatchdog: null, liveLastTime: -1, liveLastProgress: 0, liveStarted: false, diagnosticSeq: 0, playbackSeq: 0
   };
   function show(id, visible) { $(id).hidden = !visible; }
   function text(id, value) { $(id).textContent = value || ''; }
@@ -426,6 +426,7 @@
     }
   }
   function stopVideo() {
+    stopLiveWatchdog();
     state.playbackSeq++;
     savePlaybackProgress();
     if (state.streamTimer) { clearTimeout(state.streamTimer); state.streamTimer=null; }
@@ -453,9 +454,13 @@
       return;
     }
     state.hls=new window.Hls({enableWorker:false});
+    var instance=state.hls;
     state.hls.loadSource(source);
     state.hls.attachMedia($('video'));
-    playCurrentVideo();
+    state.hls.on(window.Hls.Events.MANIFEST_PARSED,function(){if(state.hls===instance)playCurrentVideo();});
+    state.hls.on(window.Hls.Events.ERROR,function(_event,data){
+      if(data && data.fatal && state.screen==='player' && playerKind==='tv' && state.hls===instance) tryNextLiveSource('La señal HLS falló.');
+    });
   }
   var hlsScriptLoading=false, hlsScriptCallbacks=[];
   function getHlsLibrary(done) {
@@ -508,9 +513,56 @@
       playCurrentVideo();
     }
   }
+  function stopLiveWatchdog() {
+    if(state.liveWatchdog){clearInterval(state.liveWatchdog);state.liveWatchdog=null;}
+    state.liveStarted=false;
+    state.liveLastTime=-1;
+    state.liveLastProgress=0;
+  }
+  function startLiveWatchdog() {
+    stopLiveWatchdog();
+    state.liveLastProgress=Date.now();
+    state.liveWatchdog=setInterval(function(){
+      if(state.screen!=='player'||playerKind!=='tv'||!state.currentChannel)return;
+      var video=$('video');
+      if(document.hidden || video.ended)return;
+      if(!state.liveStarted){
+        if(Date.now()-state.liveLastProgress>35000){
+          stopLiveWatchdog();
+          tryNextLiveSource('La señal no inició.');
+        }
+        return;
+      }
+      if(video.paused)return;
+      if(video.currentTime>state.liveLastTime+0.15){
+        state.liveLastTime=video.currentTime;
+        state.liveLastProgress=Date.now();
+      } else if(Date.now()-state.liveLastProgress>25000){
+        stopLiveWatchdog();
+        tryNextLiveSource('La transmisión no avanza.');
+      }
+    },5000);
+  }
+  function tryNextLiveSource(reason) {
+    if(state.screen!=='player' || playerKind!=='tv' || !state.currentChannel)return;
+    if(state.liveSourceIndex+1 < state.liveSourceCount) {
+      stopLiveWatchdog();
+      state.liveSourceIndex++;
+      state.retryCount=0;
+      if(state.streamTimer) { clearTimeout(state.streamTimer); state.streamTimer=null; }
+      destroyHls();
+      try { $('video').pause(); $('video').removeAttribute('src'); $('video').load(); } catch(_) {}
+      text('playerMessage',reason+' Probando señal alternativa '+(state.liveSourceIndex+1)+'/'+state.liveSourceCount+'…');
+      playResolved(state.currentChannel);
+    } else {
+      stopLiveWatchdog();
+      state.lastFailure=reason+' No hay más señales compatibles disponibles.';
+      text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
+    }
+  }
   function playResolved(ch) {
-    api('resolveLive',{channelCode:ch.channelCode || ch.id},function(err,stream) {
-      if (state.screen!=='player' || state.currentChannel!==ch) return;
+    api('resolveLive',{channelCode:ch.channelCode || ch.id,sourceIndex:state.liveSourceIndex},function(err,stream) {
+      if (state.screen!=='player' || state.currentChannel!==ch || Number(stream && stream.sourceIndex)!==state.liveSourceIndex && !err) return;
       if (err) {
         state.lastFailure=err;
         if (state.retryCount < 2) {
@@ -524,13 +576,12 @@
         return;
       }
       state.retryCount=0;
+      state.liveSourceCount=Number(stream.sourceCount)||1;
+      startLiveWatchdog();
       text('playerMessage','');
       attachMedia(stream);
-      // A TV channel is live and tokens expire; obtain a fresh reference periodically.
-      if (state.streamTimer) clearTimeout(state.streamTimer);
-      state.streamTimer=setTimeout(function(){
-        if (state.screen==='player' && state.currentChannel===ch) playResolved(ch);
-      },12*60*1000);
+      // Do not reconnect an active HLS player on a timer: it disrupts playback.
+      // Re-resolve only after a real media error, stall or explicit retry.
     });
   }
   function openLive(ch) {
@@ -539,6 +590,8 @@
     playerKind='tv';
     previousScreen='catalog';
     state.retryCount=0;
+    state.liveSourceIndex=0;
+    state.liveSourceCount=1;
     state.screen='player';
     state.currentChannel=ch;
     rememberWatched('tv',ch);
@@ -566,6 +619,8 @@
   function retryPlayback() {
     if (state.screen!=='player') return;
     state.retryCount=0;
+    state.liveSourceIndex=0;
+    state.liveSourceCount=1;
     if (playerItem) {
       stopVideo();
       resolveVodPlayback();
@@ -763,7 +818,18 @@
   $('diagnosticsButton').addEventListener('click',openDiagnostics);
   $('diagnosticsBack').addEventListener('click',closeDiagnostics);
   $('diagnosticsRefresh').addEventListener('click',refreshDiagnostics);
+  $('video').addEventListener('playing',function(){
+    if(state.screen==='player' && playerKind==='tv'){
+      state.liveStarted=true;
+      state.liveLastProgress=Date.now();
+      state.liveLastTime=$('video').currentTime;
+    }
+  });
   $('video').addEventListener('timeupdate',function(){
+    if(state.screen==='player' && playerKind==='tv' && state.liveStarted && $('video').currentTime>state.liveLastTime+0.15){
+      state.liveLastTime=$('video').currentTime;
+      state.liveLastProgress=Date.now();
+    }
     if(state.screen==='player' && playerItem && Date.now()-lastProgressSave>10000) {
       lastProgressSave=Date.now();savePlaybackProgress();
     }
@@ -804,7 +870,8 @@
   $('video').addEventListener('error',function(){
     if(state.screen==='player') {
       state.lastFailure='El video no pudo reproducirse en este dispositivo.';
-      text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
+      if(playerKind==='tv')tryNextLiveSource(state.lastFailure);
+      else text('playerMessage',state.lastFailure+' Pulsa Reintentar o Volver.');
     }
   });
   document.addEventListener('visibilitychange',function(){

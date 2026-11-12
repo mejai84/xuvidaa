@@ -39,6 +39,8 @@ services:
       M3U_USERNAME: ${M3U_USERNAME:-}
       M3U_PASSWORD: ${M3U_PASSWORD:-}
       M3U_TYPE: ${M3U_TYPE:-m3u}
+      # Explicit operator opt-in for public HTTP IPTV-org streams only.
+      VIDAA_HTTP_LIVE_ACK: ${VIDAA_HTTP_LIVE_ACK:-no}
       VIDAA_HTTP_VOD_ACK: ${VIDAA_HTTP_VOD_ACK:-no}
       VIDAA_HTTP_VOD_HOSTS: ${VIDAA_HTTP_VOD_HOSTS:-}
     volumes:
