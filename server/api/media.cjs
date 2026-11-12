@@ -141,6 +141,14 @@ function createHandler(deps) {
         if ([301,302,303,307,308].includes(status)) {
           remote.resume();return error(res,502,'El proveedor redirigió la señal');
         }
+        // Do not pass provider error pages to the video demuxer as media bytes.
+        // A 2xx response alone is not proof that a segment is decodable.
+        if (status < 200 || status >= 300) {
+          if (status !== 416) {
+            remote.resume();
+            return error(res,502,'El proveedor no entregó un segmento multimedia válido');
+          }
+        }
         const out={
           'Cache-Control':'private, no-store',
           'Content-Type':String(remote.headers['content-type']||'application/octet-stream'),
