@@ -167,3 +167,50 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .focus-card { width: 238px; }
   .cover { height: 245px; }
 }
+
+
+/* Family UX — responsive control and focus on mobile, desktop and VIDAA. */
+.profile-box { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; gap: 6px; color: #9fb7dd; font-size: 13px; }
+.profile-box select { max-width: 116px; min-height: 42px; padding: 7px; color: #fff; background: #152640; border: 1px solid #3b5173; border-radius: 8px; }
+.quick-actions { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; gap: 9px; margin-bottom: 22px; }
+.view-button { background: #16253d; color: #b9c9e3; border: 1px solid #354969; border-radius: 9px; min-height: 45px; padding: 10px 18px; font-size: 15px; }
+.view-button.selected { color: #fff; background: #354b80; border-color: #8cacff; }
+.continue-hint { color: #a8bddc; background: #15233b; padding: 12px 16px; border-radius: 9px; line-height: 1.5; }
+.catalog-item { position: relative; width: 172px; margin: 9px; }
+.catalog-item .focus-card { margin: 0; width: 100%; }
+.favorite-button { position: absolute; z-index: 2; right: 9px; top: 8px; padding: 5px 9px; min-height: 38px; min-width: 38px; background: rgba(6,14,30,.87); color: #ffdc86; border: 1px solid #55709d; border-radius: 9px; font-size: 23px; }
+.favorite-button[aria-pressed="true"] { background: #3b3055; color: #ffe297; }
+.favorite-button:focus { outline: 3px solid #c4d8ff; }
+#detailFavorite { margin: 10px 0 8px; }
+.player-actions { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; gap: 9px; }
+.player-actions button { font-size: 14px; }
+.diagnostic-panel { width: 760px; max-width: 100%; margin: 0 auto; padding: 20px; }
+.diagnostic-panel h2 { font-size: 31px; margin: 22px 0 12px; }
+.diagnostic-panel p { color: #a9bddc; line-height: 1.5; }
+.diagnostics-list { margin: 20px 0; }
+.diagnostic-row { display: -webkit-flex; display: flex; justify-content: space-between; padding: 17px 12px; border-bottom: 1px solid #2c4266; gap: 20px; }
+.diagnostic-row strong { color: #e6efff; font-size: 15px; }
+.diagnostic-row span { color: #b7c5e0; text-align: right; font-size: 14px; }
+.privacy-note { margin-top: 25px; color: #a7b9d7; font-size: 13px; }
+@media (min-width: 1600px) {
+  .catalog-item { width: 195px; }
+}
+@media (min-width: 2200px) {
+  .catalog-item { width: 238px; }
+}
+@media (max-width: 800px) {
+  .catalog-item { width: calc(50% - 18px); }
+  .profile-box span { display: none; }
+  .profile-box select { max-width: 95px; padding: 6px 3px; font-size: 12px; }
+  .quick-actions { -webkit-justify-content: center; justify-content: center; }
+  .view-button { padding: 8px 11px; font-size: 13px; }
+  .player-actions { -webkit-justify-content: flex-end; justify-content: flex-end; }
+  .player-actions button { padding: 7px 9px; font-size: 12px; }
+  .diagnostic-row { display: block; }
+  .diagnostic-row span { display: block; text-align: left; margin-top: 8px; }
+}
+@media (max-width: 390px) {
+  .catalog-item { width: calc(50% - 18px); }
+  .player-top { top: 9px; left: 9px; right: 9px; }
+  .player-actions button { font-size: 11px; }
+}
