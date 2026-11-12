@@ -16,6 +16,7 @@ const LOGIN_MAX_FAILURES = 10;
 const PUBLIC_FILES = new Map([
   ['index.html', 'text/html; charset=utf-8'],
   ['js/app.js', 'text/javascript; charset=utf-8'],
+  ['js/family.js', 'text/javascript; charset=utf-8'],
   ['css/app.css', 'text/css; charset=utf-8']
 ]);
 const ASSET_TYPES = new Map([
