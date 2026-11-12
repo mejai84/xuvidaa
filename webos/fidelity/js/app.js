@@ -59,7 +59,7 @@
   if (devServiceParam) { vodApi.devServiceUrl = decodeURIComponent(devServiceParam[1]); }
   var vodApiState = { loading: false, source: 'portal', error: null };
   var portalState = { refreshing: false, lastSync: 0, roots: 0, error: null };
-  var PORTAL_ROOTS = ['featured', 'movies', 'series', 'anime', 'kids', 'free'];
+  var PORTAL_ROOTS = ['featured', 'movies', 'series'];
 
   function apiArray(payload) {
     if (Object.prototype.toString.call(payload) === '[object Array]') { return payload; }
@@ -817,16 +817,11 @@ function portalServiceCall(method, params, done, customTimeout) {
     history: '<svg viewBox="0 0 33 33"><circle cx="16.5" cy="17" r="10.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M16.5 10.5V17l5 3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M8 7v6h6" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>'
   };
 
+  /* Only three user-facing sections: genres and history are not sidebar tabs. */
   var TABS = [
-    { label: 'TV', page: 0, icon: 'tv' },
-    { label: 'DESTACADOS', page: 1, icon: 'thumb' },
-    { label: 'PELICULA', page: 2, icon: 'film' },
-    { label: 'SERIES', page: 3, icon: 'strip' },
-    { label: 'KIDS', page: 4, icon: 'kids' },
-    { label: 'ANIME', page: 5, icon: 'anime' },
-    { label: 'NOVELAS', page: 6, icon: 'novel' },
-    { label: 'EXPLORAR', page: 7, icon: 'compass' },
-    { label: 'HISTORIAL', page: -1, icon: 'history', action: 'history' }
+    { label: 'TV EN VIVO', page: 0, icon: 'tv' },
+    { label: 'PELÍCULAS', page: 2, icon: 'film' },
+    { label: 'SERIES', page: 3, icon: 'strip' }
   ];
 
   var SETTINGS_ITEMS = [
@@ -1655,7 +1650,7 @@ function portalServiceCall(method, params, done, customTimeout) {
     heroCopy.appendChild(el('div', 'launcher-eyebrow', 'TU ENTRETENIMIENTO, EN UN SOLO LUGAR'));
     heroCopy.appendChild(el('div', 'launcher-title', 'Todo lo que te gusta.'));
     heroCopy.appendChild(el('div', 'launcher-description', 'Canales en vivo, películas y series para disfrutar en tu TV.'));
-    var heroAction = el('button', 'launcher-hero-action focusable', 'Explorar destacados');
+    var heroAction = el('button', 'launcher-hero-action focusable', 'Explorar películas');
     heroAction._onFocus = function () { setFocus(heroAction); };
     heroAction._activate = function () { activateLauncherTab(1, heroAction); };
     hero.appendChild(heroCopy);
@@ -1667,11 +1662,8 @@ function portalServiceCall(method, params, done, customTimeout) {
 
     var shortcuts = [
       { label: 'TV en vivo', sub: 'Canales y programación', icon: '▣', tab: 0, tone: 'blue' },
-      { label: 'Películas', sub: 'Cine para cada momento', icon: '▶', tab: 2, tone: 'coral' },
-      { label: 'Series', sub: 'Historias que enganchan', icon: '▤', tab: 3, tone: 'violet' },
-      { label: 'Kids', sub: 'Diversión para pequeños', icon: '✦', tab: 4, tone: 'green' },
-      { label: 'Anime', sub: 'Mundos extraordinarios', icon: '✿', tab: 5, tone: 'pink' },
-      { label: 'Explorar', sub: 'Descubre más contenido', icon: '⌕', tab: 7, tone: 'amber' }
+      { label: 'Películas', sub: 'Cine para cada momento', icon: '▶', tab: 1, tone: 'coral' },
+      { label: 'Series', sub: 'Temporadas y episodios', icon: '▤', tab: 2, tone: 'violet' }
     ];
     var row = el('div', 'launcher-shortcuts');
     for (var i = 0; i < shortcuts.length; i++) {
@@ -1699,15 +1691,14 @@ function portalServiceCall(method, params, done, customTimeout) {
     host.appendChild(sectionTitle);
     var links = el('div', 'launcher-links');
     var linkDefs = [
-      { label: 'Destacados', tab: 1 }, { label: 'Novelas', tab: 6 },
-      { label: 'Mi lista', tab: 8 }
+      { label: 'TV en vivo', tab: 0 }, { label: 'Películas', tab: 1 },
+      { label: 'Series', tab: 2 }
     ];
     for (var j = 0; j < linkDefs.length; j++) {
       (function (link) {
         var item = el('button', 'launcher-link focusable', link.label + '  ›');
         item._activate = function () {
-          if (link.tab === 8) { historyViewTab = 'history'; openSettings(); showSettingsPanel(1, true); }
-          else { activateLauncherTab(link.tab, item); }
+          activateLauncherTab(link.tab, item);
         };
         links.appendChild(item);
       })(linkDefs[j]);
