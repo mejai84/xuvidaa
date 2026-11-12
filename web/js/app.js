@@ -20,7 +20,7 @@
   var lastProgressSave = 0;
   var previousScreen = 'catalog';
   var state = {
-    section: 'tv', query: '', category: 'all', page: 0, more: false, total: 0,
+    section: 'tv', query: '', category: 'all', country: 'CO', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
     hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
     view: 'all', lastFailure: '', retryCount: 0, diagnosticSeq: 0, playbackSeq: 0
@@ -143,6 +143,9 @@
       nav[i].className = 'nav-button' + (active ? ' selected' : '');
       nav[i].setAttribute('aria-current',active ? 'page' : 'false');
     }
+    var country=$('country');
+    country.hidden = section !== 'tv';
+    country.value = state.country;
     var category=$('category');
     category.hidden = section !== 'tv';
     category.value = 'all';
@@ -222,6 +225,18 @@
         select.appendChild(option);
       }
       select.value=previous || 'all';
+      var countrySelect=$('country'), previousCountry=state.country;
+      countrySelect.textContent='';
+      var allCountries=make('option',null,'Todos los países'); allCountries.value='ALL'; countrySelect.appendChild(allCountries);
+      var countries=body.countries||[];
+      for(var j=0;j<countries.length;j++) {
+        if(!/^[A-Z]{2}$/.test(countries[j].code||''))continue;
+        var countryOption=make('option',null,countries[j].name||countries[j].code);
+        countryOption.value=countries[j].code;
+        countrySelect.appendChild(countryOption);
+      }
+      countrySelect.value=previousCountry;
+      if(countrySelect.value!==previousCountry) { var co=make('option',null,'Colombia');co.value='CO';countrySelect.appendChild(co);countrySelect.value=previousCountry; }
     });
   }
   function fetchPage(page,append) {
@@ -235,7 +250,7 @@
       (section==='tv'?'canales':section==='movies'?'películas':'series') + '…');
     error(append ? 'Cargando más resultados…' : '');
     var input = {pageNum:page,pageSize:24,search:state.query};
-    if (section==='tv') { input.columnId=state.category; }
+    if (section==='tv') { input.columnId=state.category; input.country=state.country; }
     else { input.category=state.category; }
     api(endpoints[section],input,function(err,result) {
       if (id!==state.requestId || section!==state.section || state.screen!=='catalog') return;
