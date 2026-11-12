@@ -3,6 +3,8 @@
 // Standalone TVVIDAA HTTPS media relay. Zero upstream URLs/credentials leave
 // the server: only opaque AES-GCM references are sent to web/VIDAA clients.
 const https = require('node:https');
+const http = require('node:http');
+const {permittedMediaOrigin} = require('./lib/vod-origin-policy.cjs');
 const dns = require('node:dns');
 const net = require('node:net');
 const tokenCodec = require('./lib/media-token.js');
@@ -34,8 +36,7 @@ function validateUrl(raw, hosts) {
   try {
     const uri = new URL(raw);
     const host = uri.hostname.toLowerCase();
-    if (uri.protocol !== 'https:' || uri.username || uri.password ||
-        (uri.port && uri.port !== '443') || net.isIP(host) || !host.includes('.') ||
+    if (!permittedMediaOrigin(uri) || net.isIP(host) || !host.includes('.') ||
         host.endsWith('.') || !Array.isArray(hosts) || !hosts.includes(host)) return null;
     return uri;
   } catch (_) { return null; }
@@ -43,7 +44,8 @@ function validateUrl(raw, hosts) {
 function createHandler(deps) {
   const modules = deps || {};
   const resolveDns = modules.dnsLookup || dns.lookup;
-  const makeRequest = modules.httpsRequest || https.request;
+  const makeHttpsRequest = modules.httpsRequest || https.request;
+  const makeHttpRequest = modules.httpRequest || http.request;
   return function handler(req, res) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-store');
@@ -120,9 +122,11 @@ function createHandler(deps) {
     headers.Connection='close';
 
     function requestUpstream(address) {
+      const isHttp = url.protocol === 'http:';
+      const port = isHttp ? Number(url.port || 80) : 443;
       const options={
-        protocol:'https:',method:req.method,hostname:url.hostname,servername:url.hostname,
-        port:443,path:url.pathname+url.search,headers,timeout:25000,
+        protocol:url.protocol,method:req.method,hostname:url.hostname,
+        port,path:url.pathname+url.search,headers,timeout:25000,
         lookup:(_hostname,options,callback)=>{
           // Node 22's family auto-selection requests the dns.lookup(all:true)
           // result shape. Both forms remain pinned to the validated IPv4.
@@ -130,6 +134,8 @@ function createHandler(deps) {
           callback(null,address,4);
         }
       };
+      if (!isHttp) options.servername=url.hostname;
+      const makeRequest = isHttp ? makeHttpRequest : makeHttpsRequest;
       const upstream=makeRequest(options,(remote)=>{
         const status=remote.statusCode||502;
         if ([301,302,303,307,308].includes(status)) {

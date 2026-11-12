@@ -6,6 +6,7 @@ const net = require('node:net');
 const { IptvOrgProvider } = require('../providers/iptvOrgProvider.cjs');
 const { M3uProvider } = require('../providers/m3uProvider.cjs');
 const registry = require('./media-registry.cjs');
+const {permittedMediaOrigin} = require('./lib/vod-origin-policy.cjs');
 
 const cacheDir = path.join(__dirname, '..', '.cache');
 const live = new IptvOrgProvider({
@@ -174,9 +175,8 @@ async function handler(req, res) {
       let url;
       try { url = new URL(result.streamUrl); }
       catch (_) { return respond(res,415,{errorText:'Origen de video inválido'}); }
-      if (url.protocol !== 'https:' || url.username || url.password ||
-          isUnsafeHost(url.hostname) || (url.port && url.port !== '443')) {
-        return respond(res,415,{errorText:'La fuente privada requiere HTTPS público compatible'});
+      if (!permittedMediaOrigin(url) || isUnsafeHost(url.hostname)) {
+        return respond(res,415,{errorText:'La fuente privada no tiene un origen HTTPS o HTTP autorizado'});
       }
       if (!['video/mp4','application/vnd.apple.mpegurl','video/mp2t'].includes(result.mime)) {
         return respond(res,415,{errorText:'Formato no compatible con reproducción web VIDAA'});
