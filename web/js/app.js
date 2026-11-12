@@ -228,6 +228,7 @@
       state.busy=false;
       show('catalogLoader', false);
       if (err) {
+        state.lastFailure=err;
         error(err);
         text('connection','Servicio no disponible');
         return;
@@ -374,6 +375,7 @@
     api('resolve',{contentId:target},function(err,result) {
       if (state.screen!=='player' || !playerItem || playerItem.id!==target) return;
       if (err) {
+        state.lastFailure=err;
         text('playerMessage',err);
         return;
       }
@@ -480,7 +482,19 @@
   function playResolved(ch) {
     api('resolveLive',{channelCode:ch.channelCode || ch.id},function(err,stream) {
       if (state.screen!=='player' || state.currentChannel!==ch) return;
-      if (err) { text('playerMessage',err);return; }
+      if (err) {
+        state.lastFailure=err;
+        if (state.retryCount < 2) {
+          state.retryCount++;
+          text('playerMessage','Reconectando señal (intento '+state.retryCount+'/2)…');
+          if (state.streamTimer) clearTimeout(state.streamTimer);
+          state.streamTimer=setTimeout(function(){
+            if(state.screen==='player' && state.currentChannel===ch)playResolved(ch);
+          },3000*state.retryCount);
+        } else text('playerMessage',err+' · Pulsa Reintentar.');
+        return;
+      }
+      state.retryCount=0;
       text('playerMessage','');
       attachMedia(stream);
       // A TV channel is live and tokens expire; obtain a fresh reference periodically.
@@ -564,6 +578,12 @@
     api('m3uStatus',{},function(err,body){
       if(state.screen!=='diagnostics' || state.diagnosticSeq!==serial)return;
       diagnosticRow('Biblioteca privada',err?'No se pudo comprobar':body.configured?'Configurada':'Sin configurar');
+      if (!err && body.cacheReady) {
+        diagnosticRow('Películas',String(body.moviesCount||0));
+        diagnosticRow('Series',String(body.seriesCount||0));
+        diagnosticRow('Episodios',String(body.episodesCount||0));
+        diagnosticRow('Catálogo actualizado',body.updatedAt?new Date(body.updatedAt).toLocaleDateString():'Sin fecha');
+      }
     });
     api('liveChannels',{pageNum:1,pageSize:1},function(err,body){
       if(state.screen!=='diagnostics' || state.diagnosticSeq!==serial)return;
