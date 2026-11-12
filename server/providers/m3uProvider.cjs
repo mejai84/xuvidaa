@@ -253,9 +253,21 @@ class M3uProvider {
       const year = yearMatch ? yearMatch[1] : '';
       const dedupeKey = titleKey + '|' + year;
 
-      if (uniqueMoviesMap.has(dedupeKey)) {
+      // Prefer a browser-friendly source when the same title/year has
+      // multiple provider entries. This does not pretend MKV is MP4.
+      // Keep the original first entry for equal-ranked formats.
+      const formatRank = (url) => {
+        try {
+          const ext = new URL(url).pathname.toLowerCase();
+          if (/\\.m3u8$/.test(ext)) return 3;
+          if (/\\.mp4$/.test(ext)) return 2;
+        } catch (_) {}
+        return 0;
+      };
+      const previous = uniqueMoviesMap.get(dedupeKey);
+      if (previous) {
         duplicateMoviesCount++;
-        continue;
+        if (formatRank(previous.streamUrl) >= formatRank(m.url)) continue;
       }
 
       const movieId = 'mov-' + hash(m.id + '|' + dedupeKey);
