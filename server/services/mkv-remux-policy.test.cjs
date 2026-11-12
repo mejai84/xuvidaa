@@ -30,3 +30,12 @@ test('Only internally controlled paths are accepted', () => {
   assert.ok(args.includes('file,pipe'));
   assert.ok(args.includes('copy'));
 });
+
+test('HLS output stays bounded with rolling segment deletion', () => {
+  const plan=selectMkvPlan([{codec_type:'video',codec_name:'h264'}]);
+  const args=ffmpegHlsArgs(plan,'/tmp/tvvidaa-mkv/abc.mkv','/tmp/tvvidaa-hls/abc/index.m3u8');
+  assert.equal(args[args.indexOf('-hls_list_size')+1],'5');
+  assert.equal(args[args.indexOf('-hls_delete_threshold')+1],'1');
+  assert.equal(args[args.indexOf('-hls_flags')+1],'delete_segments+temp_file+omit_endlist');
+  assert.equal(args.includes('-hls_playlist_type'),false);
+});
