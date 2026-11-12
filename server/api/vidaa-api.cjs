@@ -5,7 +5,7 @@ const path = require('node:path');
 const net = require('node:net');
 const { IptvOrgProvider } = require('../providers/iptvOrgProvider.cjs');
 const { M3uProvider } = require('../providers/m3uProvider.cjs');
-const tokens = require('./lib/media-token.js');
+const registry = require('./media-registry.cjs');
 
 const cacheDir = path.join(__dirname, '..', '.cache');
 const live = new IptvOrgProvider({
@@ -140,10 +140,52 @@ async function handler(req, res) {
       return respond(res,200,safeDetail(d));
     }
     if (method === 'm3uStatus') {
-      return respond(res,200,{configured:vod.isConfigured()});
+      // Diagnostics are metadata-only; no network fetch, host, username,
+      // password or private stream URL is ever returned.
+      const cache = vod.inMemoryCatalog;
+      return respond(res,200,{
+        configured:vod.isConfigured(),
+        cacheReady:!!cache,
+        updatedAt:cache ? (cache.fetchedAt || null) : null,
+        moviesCount:cache && cache.stats ? (cache.stats.moviesCount || 0) : null,
+        seriesCount:cache && cache.stats ? (cache.stats.seriesCount || 0) : null,
+        episodesCount:cache && cache.stats ? (cache.stats.episodesCount || 0) : null
+      });
     }
     if (method === 'resolve') {
-      return respond(res,501,{errorText:'La reproducción VOD requiere completar las pruebas de seguridad.'});
+      // Only identifiers from the provider's catalog are accepted. Never accept
+      // a caller-supplied URL, path, headers, cookie or credential.
+      const id = String(input.contentId || input.id || '').trim();
+      if (!/^(?:mov-|ep-)[A-Za-z0-9._-]{5,120}$/.test(id)) {
+        return respond(res,400,{errorText:'Identificador de contenido inválido'});
+      }
+      if (!vod.isConfigured()) return respond(res,503,{errorText:'Biblioteca privada no configurada'});
+      const result = await vod.resolveStream(id);
+      if (!result || !result.found || !result.streamUrl) {
+        return respond(res,404,{errorText:'No se encontró el título en el catálogo privado'});
+      }
+      let url;
+      try { url = new URL(result.streamUrl); }
+      catch (_) { return respond(res,415,{errorText:'Origen de video inválido'}); }
+      if (url.protocol !== 'https:' || url.username || url.password ||
+          isUnsafeHost(url.hostname) || (url.port && url.port !== '443')) {
+        return respond(res,415,{errorText:'La fuente privada requiere HTTPS público compatible'});
+      }
+      if (!['video/mp4','application/vnd.apple.mpegurl','video/mp2t'].includes(result.mime)) {
+        return respond(res,415,{errorText:'Formato no compatible con reproducción web VIDAA'});
+      }
+      const exp = Date.now() + 8 * 60 * 60 * 1000;
+      const issued = registry.register({
+        url:url.toString(),hosts:[url.hostname.toLowerCase()],mime:result.mime,
+        headers:{},duration:result.duration||0
+      },exp);
+      if (!issued) return respond(res,503,{errorText:'No se pudo preparar el video'});
+      return respond(res,200,{
+        contentId:id,isHls:result.isHls,mime:result.mime,
+        mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(result.isHls?'&manifest=1':''),
+        mediaExpiresAt:issued.exp,
+        title:String(result.item && result.item.title || '')
+      });
     }
     if (method === 'resolveLive') {
       const code=String(input.channelCode||'').trim();
@@ -165,17 +207,15 @@ async function handler(req, res) {
       if (!selected) return respond(res,415,{errorText:'No existe un origen HTTPS compatible para este canal'});
       const hls=/\.m3u8$/i.test(selected.pathname);
       const mime=hls?'application/vnd.apple.mpegurl':'video/mp2t';
-      const secret=process.env.MEDIA_TOKEN_SECRET||'';
-      const exp=Date.now()+15*60*1000;
-      const token=tokens.encode({
+      const issued=registry.register({
         url:selected.toString(),hosts:[selected.hostname.toLowerCase()],
-        headers:{},mime,subtitles:[],duration:0,exp
-      },secret);
-      if (!token) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
+        headers:{},mime,duration:0
+      },Date.now()+15*60*1000);
+      if (!issued) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
       return respond(res,200,{
         name:String(ch.name||'TV'),isHls:hls,mime,
-        mediaUrl:'/api/media?token='+encodeURIComponent(token)+(hls?'&manifest=1':''),
-        mediaExpiresAt:exp
+        mediaUrl:'/api/media?token='+encodeURIComponent(issued.token)+(hls?'&manifest=1':''),
+        mediaExpiresAt:issued.exp
       });
     }
   } catch (_) {

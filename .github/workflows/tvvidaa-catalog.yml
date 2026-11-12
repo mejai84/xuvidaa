@@ -1,10 +1,11 @@
-name: TVVIDAA catalog validation
+name: TVVIDAA web-only validation
 
 on:
   push:
     branches:
-      - fix/tvvidaa-catalog-production
-      - feature/vidaa-web-native
+      - hostinger-vps
+      - refactor/vidaa-cleanup
+      - feature/vidaa-familia-ux
   pull_request:
     branches:
       - hostinger-vps
@@ -20,81 +21,54 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
       - name: Syntax validation
         shell: bash
         run: |
           set -euo pipefail
           while IFS= read -r -d '' file; do
             node --check "$file"
-          done < <(find server tools webos/fidelity/api webos/fidelity/js -type f \( -name '*.js' -o -name '*.cjs' \) -print0)
-
-      - name: Unit and integration tests
-        env:
-          MEDIA_TOKEN_SECRET: test-ci-media-secret-32-bytes-minimum-0123456789
-          PUBLIC_BASE_URL: https://tv.example.test
-        run: node --test server/*.test.cjs server/providers/*.test.cjs tools/*.test.cjs
-
-      - name: Protected player paths remain unchanged
+          done < <(find server web -type f \( -name '*.js' -o -name '*.cjs' \) -print0)
+      - name: No obsolete webOS/Xuper components in active tree
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin hostinger-vps --depth=1 || true
-          changed=$(git diff --name-only origin/hostinger-vps HEAD -- webos/services/)
-          if [ -n "$changed" ]; then
-            echo "Protected webOS player service changed unexpectedly:"; echo "$changed"; exit 1
+          test ! -d webos
+          test ! -d tools
+          test ! -e INSTALAR-XUPERTV.bat
+          if grep -REn "require\(['\"][^'\"]*webos|PalmServiceBridge|luna://" server/api server/providers server/services server/http-server.cjs web/js; then
+            echo 'Unexpected obsolete runtime dependency detected'
+            exit 1
           fi
-          # The UI app.js contains both search/menus and protected playback.
-          # Allow only localized menu/search edits relative to the production branch.
-          node - <<'NODE'
-          const cp = require('node:child_process');
-          const diff = cp.execFileSync('git', ['diff', '--unified=0', 'origin/hostinger-vps', 'HEAD', '--', 'webos/fidelity/js/app.js'], {encoding:'utf8'});
-          // Allowed baseline ranges: catalog roots, tabs, search state, search key routing,
-          // home launcher, and the search screen. No media/player/episode functions.
-          const allowed = [[45,80],[795,842],[861,898],[1265,1330],[1620,1740],[3295,3605]];
-          const prohibited = /\b(?:playUrl|resolveSmooth|restartCurrentPlayback|forceRelay|playerSeek|streamMode|ffmpeg-relay|proxy\.js|dnsx\.js)\b/;
-          for (const line of diff.split('\n')) {
-            const hunk = /^@@ -(\d+)/.exec(line);
-            if (hunk) {
-              const n = Number(hunk[1]);
-              if (!allowed.some(([start,end]) => n >= start && n <= end)) {
-                throw new Error('Unreviewed app.js change outside search/menu ranges near original line ' + n);
-              }
-            } else if ((line.startsWith('+') && !line.startsWith('+++')) ||
-                       (line.startsWith('-') && !line.startsWith('---'))) {
-              if (prohibited.test(line)) {
-                throw new Error('Protected playback code changed in diff');
-              }
-            }
-          }
-          NODE
-
-      - name: Docker image build
-        run: docker build -f deploy/hostinger/Dockerfile -t tvvidaa-catalog:ci .
-
-      - name: Docker Compose configuration
+      - name: Node unit and API integration tests
+        env:
+          MEDIA_TOKEN_SECRET: test-ci-media-secret-32-bytes-minimum-0123456789
+          PUBLIC_BASE_URL: https://tv.example.test
+        run: node --test server/*.test.cjs server/providers/*.test.cjs
+      - name: Build Docker image
+        run: docker build -f deploy/hostinger/Dockerfile -t tvvidaa-web:ci .
+      - name: Verify Compose configuration
         env:
           PUBLIC_BASE_URL: https://tv.example.test
           MEDIA_TOKEN_SECRET: test-ci-media-secret-32-bytes-minimum-0123456789
           VIDAA_SESSION_SECRET: test-ci-session-secret-32-bytes-minimum-0123456789
-          VIDAA_WEB_PASSWORD: example-test-password-not-used-in-production
+          VIDAA_WEB_PASSWORD: test-passphrase-at-least-fourteen-characters
         run: docker compose -f deploy/hostinger/compose.yaml config --quiet
-
-      - name: Docker smoke test - native web runtime
+      - name: Docker HTTP, frontend and session smoke
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm -d --name tvvidaa-smoke -p 127.0.0.1:38590:3000             -e PUBLIC_BASE_URL=https://tv.example.test             -e MEDIA_TOKEN_SECRET=test-ci-media-secret-32-bytes-minimum-0123456789             -e VIDAA_SESSION_SECRET=test-ci-session-secret-32-bytes-minimum-0123456789             -e VIDAA_WEB_PASSWORD=example-test-password-not-used-in-production             tvvidaa-catalog:ci
-          trap 'docker rm -f tvvidaa-smoke >/dev/null 2>&1 || true' EXIT
-          for i in {1..20}; do
-            if curl -fsS http://127.0.0.1:38590/healthz >/dev/null; then break; fi
+          docker run -d --rm --name tvvidaa-cleanup-smoke -p 127.0.0.1:38590:3000 \
+            -e PUBLIC_BASE_URL=https://tv.example.test \
+            -e MEDIA_TOKEN_SECRET=test-ci-media-secret-32-bytes-minimum-0123456789 \
+            -e VIDAA_SESSION_SECRET=test-ci-session-secret-32-bytes-minimum-0123456789 \
+            -e VIDAA_WEB_PASSWORD=test-passphrase-at-least-fourteen-characters tvvidaa-web:ci
+          trap 'docker rm -f tvvidaa-cleanup-smoke >/dev/null 2>&1 || true' EXIT
+          for i in {1..25}; do
+            if curl --fail --silent --show-error http://127.0.0.1:38590/healthz >/dev/null 2>&1; then break; fi
             sleep 1
           done
           curl -fsS http://127.0.0.1:38590/healthz | grep '"ready":true'
@@ -102,4 +76,19 @@ jobs:
           curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/js/app.js | grep 'standalone web'
           curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/css/app.css | grep 'standalone responsive'
           curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/api/session | grep '"authenticated":false'
-
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' \
+            -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:38590/api/ping)" = "401"
+          # The login cookie is Secure; curl correctly will not send it via the
+          # local HTTP loopback URL. Carry it explicitly only for this isolated test.
+          curl -fsS -D /tmp/vidaa-test-headers -o /tmp/vidaa-test-login \
+            -H 'Host: tv.example.test' -H 'Content-Type: application/json' \
+            -d '{"password":"test-passphrase-at-least-fourteen-characters"}' \
+            http://127.0.0.1:38590/api/login
+          grep '"authenticated":true' /tmp/vidaa-test-login
+          cookie=$(grep -i '^set-cookie:' /tmp/vidaa-test-headers | cut -d' ' -f2 | cut -d';' -f1 | tr -d '\r')
+          test -n "$cookie"
+          curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' \
+            -H 'Content-Type: application/json' -d '{}' \
+            http://127.0.0.1:38590/api/ping | grep '"service":"TVVIDAA-web"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' \
+            http://127.0.0.1:38590/js/access.js)" = "404"

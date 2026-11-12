@@ -270,7 +270,7 @@ class M3uProvider {
         type: 'movie',
         isSeries: false,
         source: 'private-m3u',
-        streamPath: xtreamInfo ? xtreamInfo.relativePath : '', // sanitized path for disk cache
+        streamPath: xtreamInfo && xtreamInfo.type === 'movie' ? xtreamInfo.relativePath : '', // never cache arbitrary provider paths
         streamUrl: m.url // in-memory stream URL
       });
     }
@@ -280,6 +280,15 @@ class M3uProvider {
 
     // Process series grouping
     const processedSeries = groupEpisodesIntoSeries(rawEpisodes);
+    // Preserve only credential-free stream identifiers in the disk cache.
+    for (const series of processedSeries) {
+      for (const season of series.seasons || []) {
+        for (const episode of season.episodes || []) {
+          const parsed = parseXtreamPath(episode.streamUrl);
+          episode.streamPath = parsed && parsed.type === 'series' ? parsed.relativePath : '';
+        }
+      }
+    }
 
     // Compute stats
     const totalEntries = movies.length + rawEpisodes.length + liveChannels.length + unknowns.length + invalidCount;
@@ -347,25 +356,55 @@ class M3uProvider {
     return new Promise((resolve, reject) => {
       const parsed = new URL(targetUrl);
       const mod = parsed.protocol === 'https:' ? https : http;
-      const req = mod.get(targetUrl, { timeout: 45000, headers: { 'User-Agent': 'xuvidaa/1.0' } }, (res) => {
+      const req = mod.get(targetUrl, { timeout: 45000, headers: { 'User-Agent': 'TVVIDAA/1.0' } }, (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
           res.resume();
           return reject(new Error(`HTTP ${res.statusCode} al descargar lista M3U`));
         }
         const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        let total = 0;
+        let done = false;
+        res.on('data', (c) => {
+          if (done) return;
+          total += c.length;
+          if (total > 64 * 1024 * 1024) {
+            done = true;
+            res.destroy(new Error('La lista M3U excede 64 MB'));
+            return;
+          }
+          chunks.push(c);
+        });
+        res.on('error', (err) => reject(new Error('Descarga M3U interrumpida')));
+        res.on('end', () => {
+          if (done) return;
+          resolve(Buffer.concat(chunks).toString('utf8'));
+        });
       });
-      req.on('error', (err) => reject(new Error('Fallo de red al descargar M3U: ' + err.message)));
+      req.on('error', () => reject(new Error('Fallo de red al descargar la lista M3U')));
       req.setTimeout(45000, () => req.destroy(new Error('Timeout de 45s descargando M3U')));
     });
   }
 
   // Prepares data for disk cache, guaranteeing ZERO CREDENTIALS in file
   sanitizeDataForDisk(data) {
+    // The catalog cache is not a place to keep upstream URLs, auth-bearing
+    // images, provider identifiers or plaintext credentials.
+    const safeArtwork = (raw) => {
+      try {
+        if (!raw) return null;
+        const uri = new URL(raw);
+        if (uri.protocol !== 'https:' || uri.username || uri.password) return null;
+        const expanded = decodeURIComponent(uri.toString());
+        if (/(?:[?&](?:pass|password|username|token|auth|key|apikey)=)/i.test(expanded)) return null;
+        if ([this.username,this.password].some(secret => secret && expanded.includes(secret))) return null;
+        return uri.toString();
+      } catch (_) { return null; }
+    };
     const sanitizeMovies = data.movies.map((m) => {
       const copy = Object.assign({}, m);
       delete copy.streamUrl; // do not store raw authenticated URL on disk
+      delete copy.sourceItemId;
+      copy.poster = safeArtwork(copy.poster);
       // Store only a relative, credential-free provider path so the stream
       // index can be restored after a process restart.
       return copy;
@@ -373,6 +412,8 @@ class M3uProvider {
 
     const sanitizeSeries = data.series.map((s) => {
       const copy = Object.assign({}, s);
+      copy.poster = safeArtwork(copy.poster);
+      copy.backdrop = safeArtwork(copy.backdrop);
       copy.seasons = s.seasons.map((season) => ({
         id: season.id,
         number: season.number,
@@ -381,6 +422,8 @@ class M3uProvider {
         episodes: season.episodes.map((ep) => {
           const epCopy = Object.assign({}, ep);
           delete epCopy.streamUrl; // do not store raw authenticated URL on disk
+          delete epCopy.sourceItemId;
+          epCopy.logo = safeArtwork(epCopy.logo);
           return epCopy;
         })
       }));
@@ -423,7 +466,7 @@ class M3uProvider {
   }
 
   async refresh(force) {
-    if (this.refreshPromise && !force) {
+    if (this.refreshPromise) {
       return this.refreshPromise;
     }
 
@@ -456,13 +499,13 @@ class M3uProvider {
 
         return parsed;
       } catch (err) {
-        console.error('[M3uProvider] Error actualizando M3U:', err.message);
+        console.error('[M3uProvider] Error actualizando M3U (detalles de origen omitidos).');
 
         // Fallback: preserve memory cache
         if (this.inMemoryCatalog) {
           return Object.assign({}, this.inMemoryCatalog, {
             stale: true,
-            warning: 'Usando catálogo M3U previo en memoria: ' + err.message
+            warning: 'Usando catálogo M3U previo en memoria; proveedor temporalmente no disponible'
           });
         }
 
@@ -473,11 +516,11 @@ class M3uProvider {
           this.fetchedAt = disk.fetchedAt || Date.now();
           return Object.assign({}, disk, {
             stale: true,
-            warning: 'Usando catálogo M3U previo en disco: ' + err.message
+            warning: 'Usando catálogo M3U previo en disco; proveedor temporalmente no disponible'
           });
         }
 
-        throw new Error('No se pudo obtener el catálogo M3U y no hay caché previa: ' + err.message);
+        throw new Error('No se pudo obtener el catálogo M3U y no hay caché previa');
       } finally {
         this.refreshPromise = null;
       }
@@ -694,17 +737,31 @@ class M3uProvider {
     };
   }
 
+  reconstructXtreamUrl(relativePath) {
+    if (!this.baseUrl || !this.username || !this.password) return '';
+    // Never deserialize arbitrary cached paths; only the canonical movie/series ID.
+    const match = /^\/(movie|series)\/([A-Za-z0-9._-]{1,120})$/.exec(String(relativePath || ''));
+    if (!match) return '';
+    try {
+      const origin = new URL(this.baseUrl);
+      if (!/^https?:$/.test(origin.protocol) || origin.username || origin.password) return '';
+      return origin.origin + '/' + match[1] + '/' +
+        encodeURIComponent(this.username) + '/' + encodeURIComponent(this.password) +
+        '/' + match[2];
+    } catch (_) { return ''; }
+  }
+
   buildStreamIndex(catalog) {
     const index = new Map();
     if (!catalog) return index;
 
     for (const m of (catalog.movies || [])) {
-      if (m && m.id && m.streamUrl) {
+      if (m && m.id && (m.streamUrl || m.streamPath)) {
         const entry = {
           id: m.id,
           sourceItemId: m.sourceItemId,
           title: m.title,
-          streamUrl: m.streamUrl,
+          streamUrl: m.streamUrl || this.reconstructXtreamUrl(m.streamPath),
           type: 'movie',
           category: m.category,
           poster: m.poster,
@@ -720,7 +777,7 @@ class M3uProvider {
     for (const s of (catalog.series || [])) {
       for (const season of (s.seasons || [])) {
         for (const ep of (season.episodes || [])) {
-          if (ep && ep.id && ep.streamUrl) {
+          if (ep && ep.id && (ep.streamUrl || ep.streamPath)) {
             const entry = {
               id: ep.id,
               sourceItemId: ep.sourceItemId,
@@ -729,7 +786,7 @@ class M3uProvider {
               seriesTitle: s.title,
               season: ep.season,
               episode: ep.episode,
-              streamUrl: ep.streamUrl,
+              streamUrl: ep.streamUrl || this.reconstructXtreamUrl(ep.streamPath),
               type: 'episode',
               poster: ep.logo || s.poster,
               duration: ep.duration || 0
@@ -753,21 +810,44 @@ class M3uProvider {
 
     const targetId = contentId.trim();
 
-    // 1. If streamIndex not built yet but in-memory catalog exists, build it
+    // Cold start: restore the credential-free catalog first and derive Xtream
+    // stream URLs only in process memory using the current server secrets.
+    if (!this.inMemoryCatalog) {
+      try { await this.refresh(false); } catch (_) { /* optional remote fallback below */ }
+    }
     if ((!this.streamIndex || this.streamIndex.size === 0) && this.inMemoryCatalog) {
       this.streamIndex = this.buildStreamIndex(this.inMemoryCatalog);
     }
 
     let entry = this.streamIndex ? this.streamIndex.get(targetId) : null;
 
-    // If not found or streamIndex empty (e.g. cold restart with disk cache), refresh if configured
+    // Unknown IDs must never trigger a full 69k-item provider download.
+    // Only refresh when a known cached item has no reconstructible URL.
+    if (!entry && this.inMemoryCatalog) {
+      const knownMovie = (this.inMemoryCatalog.movies || []).some(m =>
+        m.id === targetId || m.sourceItemId === targetId);
+      let knownEpisode = false;
+      if (!knownMovie) {
+        outer: for (const series of (this.inMemoryCatalog.series || [])) {
+          for (const season of (series.seasons || [])) {
+            for (const episode of (season.episodes || [])) {
+              if (episode.id === targetId || episode.sourceItemId === targetId) {
+                knownEpisode = true; break outer;
+              }
+            }
+          }
+        }
+      }
+      if (!knownMovie && !knownEpisode) return {found:false,errorText:'Contenido no encontrado'};
+    }
+    // If the known ID is not reconstructed, refresh the M3U once.
     if ((!entry || !entry.streamUrl) && this.isConfigured()) {
       try {
         const fresh = await this.refresh(true);
         this.streamIndex = this.buildStreamIndex(fresh);
         entry = this.streamIndex ? this.streamIndex.get(targetId) : null;
       } catch (err) {
-        console.error('[M3uProvider] Error refrescando catálogo para resolver stream:', err.message);
+        console.error('[M3uProvider] No se pudo actualizar el índice privado de reproducción.');
       }
     }
 
@@ -790,7 +870,7 @@ class M3uProvider {
       mime = 'video/x-msvideo';
     }
 
-    // Default duration: 4 hours (14400s) if duration is not set or 0, ensures at least 4.5h token validity
+    // Metadata only. The HTTP API issues a bounded, opaque media reference.
     const duration = (Number.isFinite(entry.duration) && entry.duration > 0) ? entry.duration : 14400;
 
     return {

@@ -7,6 +7,7 @@ const fs = require('node:fs');
 process.env.MEDIA_TOKEN_SECRET='ci-only-media-secret-0123456789-abcdef12345678';
 const api=require('./api/vidaa-api.cjs');
 const tokens=require('./api/lib/media-token.js');
+const registry=require('./api/media-registry.cjs');
 
 function invoke(method,body) {
   return new Promise((resolve,reject)=>{
@@ -102,15 +103,50 @@ test('encrypted IPTV resolution returns only protected same-origin media URL',as
     assert.doesNotMatch(JSON.stringify(r.body),/cdn\.example|https:\/\/cdn/);
     const t=new URL(r.body.mediaUrl,'https://tv.example.test').searchParams.get('token');
     const decoded=tokens.decode(t,process.env.MEDIA_TOKEN_SECRET);
-    assert.equal(decoded.url,'https://cdn.example/ch.m3u8');
-    assert.deepEqual(decoded.hosts,['cdn.example']);
+    assert.deepEqual(Object.keys(decoded).sort(), ['exp','ref']);
+    assert.doesNotMatch(JSON.stringify(decoded),/cdn|https|user|pass|url/);
+    const privateEntry=registry.lookup(t);
+    assert.equal(privateEntry.url,'https://cdn.example/ch.m3u8');
+    assert.deepEqual(privateEntry.hosts,['cdn.example']);
   } finally {api.live.getChannel=saved;}
 });
 
-test('old VOD streaming is never silently enabled',async()=>{
-  const r=await invoke('resolve',{contentId:'mov-12345'});
-  assert.equal(r.status,501);
-  assert.equal(r.body.returnValue,false);
+test('private movie playback resolves only a catalog ID into an opaque same-origin reference',async()=>{
+  const saved=api.vod.resolveStream, configured=api.vod.isConfigured;
+  api.vod.isConfigured=()=>true;
+  api.vod.resolveStream=async(id)=>({
+    found:true,streamUrl:'https://video.example/movie/user-secret/password-secret/123.mp4',
+    item:{id,title:'Demo VOD'},mime:'video/mp4',type:'movie',isHls:false,duration:3800
+  });
+  try {
+    const denied=await invoke('resolve',{contentId:'https://evil.example/video.mp4'});
+    assert.equal(denied.status,400);
+    const r=await invoke('resolve',{contentId:'mov-12345'});
+    assert.equal(r.status,200);
+    assert.equal(r.body.isHls,false);
+    assert.match(r.body.mediaUrl,/^\/api\/media\?token=v1\./);
+    const token=new URL(r.body.mediaUrl,'https://tv.example.test').searchParams.get('token');
+    const decoded=tokens.decode(token,process.env.MEDIA_TOKEN_SECRET);
+    assert.deepEqual(Object.keys(decoded).sort(),['exp','ref']);
+    assert.doesNotMatch(JSON.stringify(r.body),/video\.example|user-secret|password-secret/);
+    assert.equal(registry.lookup(token).url,'https://video.example/movie/user-secret/password-secret/123.mp4');
+  } finally {api.vod.resolveStream=saved;api.vod.isConfigured=configured;}
+});
+
+test('private episode HLS resolution uses opaque token and denies unsupported formats',async()=>{
+  const saved=api.vod.resolveStream,configured=api.vod.isConfigured;
+  api.vod.isConfigured=()=>true;
+  try {
+    api.vod.resolveStream=async()=>({found:true,streamUrl:'https://cdn.example/series/u/p/12.m3u8',
+      item:{title:'Episode 1'},mime:'application/vnd.apple.mpegurl',isHls:true});
+    const result=await invoke('resolve',{contentId:'ep-series-12345-s1-e1-abcdef'});
+    assert.equal(result.status,200);
+    assert.match(result.body.mediaUrl,/&manifest=1$/);
+    assert.doesNotMatch(JSON.stringify(result.body),/cdn\.example|series\/u\/p/);
+    api.vod.resolveStream=async()=>({found:true,streamUrl:'https://cdn.example/movie.mkv',mime:'video/x-matroska'});
+    const unsupported=await invoke('resolve',{contentId:'mov-12345'});
+    assert.equal(unsupported.status,415);
+  } finally {api.vod.resolveStream=saved;api.vod.isConfigured=configured;}
 });
 
 test('SSRF validation rejects local, numeric and single-label destinations',()=>{

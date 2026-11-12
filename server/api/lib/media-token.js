@@ -18,13 +18,12 @@ function keyFor(secret) {
 }
 
 function validPayload(payload) {
+  // The signed payload contains ONLY a random opaque server reference + expiry.
+  // Upstream URLs, credentials, path, headers and media metadata are prohibited.
   return !!payload && typeof payload === 'object' && !Array.isArray(payload) &&
-    typeof payload.url === 'string' && payload.url.length > 0 && payload.url.length <= 8192 &&
-    Array.isArray(payload.hosts) && payload.hosts.length > 0 && payload.hosts.length <= 64 &&
-    payload.hosts.every((host) => typeof host === 'string' && host.length > 0 && host.length <= 253) &&
-    !!payload.headers && typeof payload.headers === 'object' && !Array.isArray(payload.headers) &&
-    Number.isFinite(payload.exp) &&
-    (payload.subtitles === undefined || (Array.isArray(payload.subtitles) && payload.subtitles.length <= 64));
+    Object.keys(payload).length === 2 &&
+    typeof payload.ref === 'string' && /^[a-f0-9]{40}$/.test(payload.ref) &&
+    Number.isSafeInteger(payload.exp) && payload.exp > 0;
 }
 
 function encode(payload, secret) {

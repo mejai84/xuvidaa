@@ -1,41 +1,21 @@
-# Build artifacts
-dist/
-scratch/
-shots/
-
-# Packaged installers and compiled helpers
-*.ipk
-*.class
-
-# Local media fixtures used while diagnosing HEVC/TS playback
-*.ts
-*.mp4
-
-# Extracted APK analysis (293 MB, reproducible from the documented APK hash)
-analysis/
-
-# Platform binary restored by tools/setup-ffmpeg.ps1
-webos/services/com.webosflux.xuptertv.fidelity.service/ffmpeg
-
-# Private configuration, credentials and device-only diagnostics
+# Local/private configuration
 .env
 .env.*
 !.env.example
+server/.cache/
 *.pem
 *.key
 *.p12
 *.pfx
-*.etl
-webos/fidelity/config/api.local.js
-webos/fidelity/config/api.production.js
-webos/fidelity/data/portal.local.js
-webos/services/com.webosflux.xuptertv.fidelity.service/*.log
-webos/services/com.webosflux.xuptertv.fidelity.service/.cache/
 
-# Instalador: recuerda la ultima IP/usuario del televisor
-tools/instalar-config.json
-
-# OS / editor noise
+# Local build and test artifacts
+dist/
+coverage/
+node_modules/
+*.log
+*.ts
+*.mp4
+scratch/
 Thumbs.db
 desktop.ini
 .DS_Store
