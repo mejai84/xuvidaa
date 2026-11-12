@@ -3,6 +3,7 @@
 // in this server's memory. The browser receives an encrypted, opaque ref.
 const crypto = require('node:crypto');
 const codec = require('./lib/media-token.js');
+const {permittedMediaOrigin} = require('./lib/vod-origin-policy.cjs');
 const pool = new Map();
 const MAX_ENTRIES = 25000;
 const DEFAULT_TTL = 8 * 60 * 60 * 1000;
@@ -17,7 +18,7 @@ function register(entry, until) {
   const exp = Math.min(Number(until) || (Date.now() + DEFAULT_TTL), Date.now() + DEFAULT_TTL);
   if (!entry || typeof entry.url !== 'string' || !secret() || exp <= Date.now()) return null;
   const url = new URL(entry.url);
-  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return null;
+  if (!permittedMediaOrigin(url)) return null;
   const hosts = Array.isArray(entry.hosts) ? entry.hosts.map(x=>String(x).toLowerCase()) : [];
   if (!hosts.includes(url.hostname.toLowerCase())) return null;
   clean();
