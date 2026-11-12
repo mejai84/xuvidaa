@@ -184,9 +184,12 @@ module.exports = function handler(req, res) {
         (a[0] === 198 && a[1] === 51 && a[2] === 100) ||
         (a[0] === 203 && a[1] === 0 && a[2] === 113));
     }
-    // Fail closed if any address in the DNS answer is private.
-    if (addresses.some(a => !publicIPv4(a.address))) return reply(res, 403, 'Origen de red restringido');
-    const ip = addresses[0].address;
+    // We pin an IPv4 socket. Ignore ordinary public IPv6 answers, but never
+    // connect to IPv6 or a private/reserved IPv4 address.
+    const ipv4 = addresses.filter(a => a.family === 4);
+    if (!ipv4.length) return reply(res, 502, 'Este CDN solo tiene conectividad IPv6');
+    if (ipv4.some(a => !publicIPv4(a.address))) return reply(res, 403, 'Origen de red restringido');
+    const ip = ipv4[0].address;
     const opts = Object.assign({}, requestOptions, {
       lookup: (_hostname, _options, cb) => cb(null, ip, 4)
     });
