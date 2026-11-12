@@ -380,7 +380,7 @@ class M3uProvider {
           resolve(Buffer.concat(chunks).toString('utf8'));
         });
       });
-      req.on('error', (err) => reject(new Error('Fallo de red al descargar M3U: ' + err.message)));
+      req.on('error', () => reject(new Error('Fallo de red al descargar la lista M3U')));
       req.setTimeout(45000, () => req.destroy(new Error('Timeout de 45s descargando M3U')));
     });
   }
@@ -499,13 +499,13 @@ class M3uProvider {
 
         return parsed;
       } catch (err) {
-        console.error('[M3uProvider] Error actualizando M3U:', err.message);
+        console.error('[M3uProvider] Error actualizando M3U (detalles de origen omitidos).');
 
         // Fallback: preserve memory cache
         if (this.inMemoryCatalog) {
           return Object.assign({}, this.inMemoryCatalog, {
             stale: true,
-            warning: 'Usando catálogo M3U previo en memoria: ' + err.message
+            warning: 'Usando catálogo M3U previo en memoria; proveedor temporalmente no disponible'
           });
         }
 
@@ -516,11 +516,11 @@ class M3uProvider {
           this.fetchedAt = disk.fetchedAt || Date.now();
           return Object.assign({}, disk, {
             stale: true,
-            warning: 'Usando catálogo M3U previo en disco: ' + err.message
+            warning: 'Usando catálogo M3U previo en disco; proveedor temporalmente no disponible'
           });
         }
 
-        throw new Error('No se pudo obtener el catálogo M3U y no hay caché previa: ' + err.message);
+        throw new Error('No se pudo obtener el catálogo M3U y no hay caché previa');
       } finally {
         this.refreshPromise = null;
       }
@@ -847,7 +847,7 @@ class M3uProvider {
         this.streamIndex = this.buildStreamIndex(fresh);
         entry = this.streamIndex ? this.streamIndex.get(targetId) : null;
       } catch (err) {
-        console.error('[M3uProvider] Error refrescando catálogo para resolver stream:', err.message);
+        console.error('[M3uProvider] No se pudo actualizar el índice privado de reproducción.');
       }
     }
 
