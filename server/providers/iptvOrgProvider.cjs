@@ -149,6 +149,13 @@ function sortStreams(streams) {
   });
 }
 
+function hasGlobalCoverage(data) {
+  if (!data || !Array.isArray(data.channels) || !Array.isArray(data.countries)) return false;
+  const channelCountries = new Set(data.channels.map(channel => String(channel && channel.country || '').toUpperCase()).filter(code => /^[A-Z]{2}$/.test(code)));
+  const indexedCountries = new Set(data.countries.map(country => String(country && country.code || '').toUpperCase()).filter(code => /^[A-Z]{2}$/.test(code)));
+  return channelCountries.size > 1 && indexedCountries.size > 1;
+}
+
 class IptvOrgProvider {
   constructor(options) {
     const opts = options || {};
@@ -372,7 +379,7 @@ class IptvOrgProvider {
       // 2. If memory cache empty, check disk cache
       if (!this.inMemoryData && !force) {
         const diskCache = await this.readDiskCache();
-        if (diskCache && (Date.now() - (diskCache.fetchedAt || 0) < this.ttlMs)) {
+        if (diskCache && hasGlobalCoverage(diskCache) && (Date.now() - (diskCache.fetchedAt || 0) < this.ttlMs)) {
           this.inMemoryData = diskCache;
           this.fetchedAt = diskCache.fetchedAt || Date.now();
           return this.inMemoryData;

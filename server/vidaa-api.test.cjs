@@ -163,6 +163,30 @@ test('private sports filter returns only verified channels without exposing prov
   }
 });
 
+test('private M3U live playback uses only the configured private-media HTTP allowlist',async()=>{
+  const oldChannels=api.vod.getLiveChannels,oldReconstruct=api.vod.reconstructLiveUrl;
+  const oldAck=process.env.VIDAA_HTTP_VOD_ACK,oldHosts=process.env.VIDAA_HTTP_VOD_HOSTS;
+  api.vod.getLiveChannels=async()=>[{id:'priv-1123456789abcdef',name:'ESPN',category:'Deportes',hasStream:true,streamPath:'/live/123.ts'}];
+  api.vod.reconstructLiveUrl=()=> 'http://media.example:8080/live/provider-user/provider-pass/123.ts';
+  try {
+    process.env.VIDAA_HTTP_VOD_ACK='yes';
+    process.env.VIDAA_HTTP_VOD_HOSTS='media.example:8080';
+    const r=await invoke('resolveLive',{channelCode:'priv-1123456789abcdef'});
+    assert.equal(r.status,200);
+    assert.equal(r.body.isHls,true);
+    assert.match(r.body.mediaUrl,/&manifest=1$/);
+    assert.doesNotMatch(JSON.stringify(r.body),/media\.example|provider-user|provider-pass/);
+    const token=new URL(r.body.mediaUrl,'https://tv.example.test').searchParams.get('token');
+    assert.equal(registry.lookup(token).source,'vod');
+    process.env.VIDAA_HTTP_VOD_HOSTS='other.example:8080';
+    assert.equal((await invoke('resolveLive',{channelCode:'priv-1123456789abcdef'})).status,415);
+  } finally {
+    api.vod.getLiveChannels=oldChannels;api.vod.reconstructLiveUrl=oldReconstruct;
+    if(oldAck===undefined)delete process.env.VIDAA_HTTP_VOD_ACK;else process.env.VIDAA_HTTP_VOD_ACK=oldAck;
+    if(oldHosts===undefined)delete process.env.VIDAA_HTTP_VOD_HOSTS;else process.env.VIDAA_HTTP_VOD_HOSTS=oldHosts;
+  }
+});
+
 test('private movie playback resolves only a catalog ID into an opaque same-origin reference',async()=>{
   const saved=api.vod.resolveStream, configured=api.vod.isConfigured;
   api.vod.isConfigured=()=>true;

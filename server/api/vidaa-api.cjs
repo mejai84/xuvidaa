@@ -342,7 +342,7 @@ async function handler(req, res) {
         const mime = hls ? 'application/vnd.apple.mpegurl' : 'video/mp2t';
         const issued = registry.register({
           url:uri.toString(),hosts:[uri.hostname.toLowerCase()],
-          source:'live',headers:{},mime,duration:0
+          source:'vod',headers:{},mime,duration:0
         },Date.now()+15*60*1000);
         if (!issued) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
         const useHls = hls || mime === 'video/mp2t';
