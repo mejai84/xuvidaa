@@ -230,7 +230,7 @@ test('3. join channel -> streams relaciona correctamente por id', async () => {
   assert.equal(caracol.streams.length, 3);
 });
 
-test('4. filtro country=CO excluye canales de otros países', async () => {
+test('4. catálogo multipaís conserva países y filtra country=CO, ES y ALL al consultar', async () => {
   const data = createFixtureData();
   const provider = new IptvOrgProvider({
     country: 'CO',
@@ -244,10 +244,26 @@ test('4. filtro country=CO excluye canales de otros países', async () => {
     })
   });
 
-  const res = await provider.refresh(true);
-  const esChannel = res.channels.find((c) => c.id === 'TVEspagna.es');
-  assert.equal(esChannel, undefined, 'El canal de España debe ser excluido cuando country=CO');
-  assert.ok(res.channels.every((c) => c.country === 'CO'));
+  const catalog = await provider.refresh(true);
+  assert.ok(catalog.channels.some((c) => c.id === 'TVEspagna.es'), 'El catálogo debe conservar otros países');
+  assert.ok(catalog.countries.some((c) => c.code === 'ES'), 'España debe estar disponible en el selector');
+  assert.ok(catalog.countries.some((c) => c.code === 'CO'), 'Colombia debe estar disponible en el selector');
+
+  const colombia = await provider.getChannels({country:'CO',pageSize:50});
+  assert.ok(colombia.channels.length > 0);
+  assert.ok(colombia.channels.every((c) => c.country === 'CO'));
+  assert.ok(!colombia.channels.some((c) => c.id === 'TVEspagna.es'));
+
+  const espana = await provider.getChannels({country:'ES',pageSize:50});
+  assert.ok(espana.channels.some((c) => c.id === 'TVEspagna.es'));
+  assert.ok(espana.channels.every((c) => c.country === 'ES'));
+
+  const todos = await provider.getChannels({country:'ALL',pageSize:50});
+  assert.ok(todos.channels.some((c) => c.id === 'TVEspagna.es'));
+  assert.ok(todos.channels.some((c) => c.id === 'RCN.co'));
+
+  const porDefecto = await provider.getChannels({pageSize:50});
+  assert.ok(porDefecto.channels.every((c) => c.country === 'CO'), 'Sin país explícito debe mantenerse Colombia');
 });
 
 test('5. exclusión NSFW descarta canales para adultos e is_nsfw=true', async () => {
