@@ -236,6 +236,14 @@ function createServer(options) {
       if (isProtectedApi && !hasSession(req, sessionSecret)) {
         return json(res, 401, { error: 'Inicia sesión para continuar.' });
       }
+      const mkvMatch = /^\\/api\\/mkv\\/([a-f0-9]{32})\\/(index\\.m3u8|seg_[0-9]{5}\\.ts)$/.exec(decoded);
+      if (mkvMatch) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Método no permitido' });
+        if (typeof options.mkvHandler !== 'function') return json(res, 404, { error: 'Reproducción MKV no habilitada' });
+        return Promise.resolve(options.mkvHandler(req, res, {
+          id: mkvMatch[1], filename: mkvMatch[2], token: url.searchParams.get('token') || ''
+        })).catch(() => json(res, 502, { error: 'No se pudo servir el segmento MKV' }));
+      }
       if (decoded === '/api/media') {
         req.query = Object.fromEntries(url.searchParams);
         return Promise.resolve(mediaHandler(req, res)).catch(() => json(res, 502, { error: 'No se pudo servir el medio' }));
