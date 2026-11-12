@@ -280,6 +280,15 @@ class M3uProvider {
 
     // Process series grouping
     const processedSeries = groupEpisodesIntoSeries(rawEpisodes);
+    // Preserve only credential-free stream identifiers in the disk cache.
+    for (const series of processedSeries) {
+      for (const season of series.seasons || []) {
+        for (const episode of season.episodes || []) {
+          const parsed = parseXtreamPath(episode.streamUrl);
+          episode.streamPath = parsed && parsed.type === 'series' ? parsed.relativePath : '';
+        }
+      }
+    }
 
     // Compute stats
     const totalEntries = movies.length + rawEpisodes.length + liveChannels.length + unknowns.length + invalidCount;
@@ -694,17 +703,31 @@ class M3uProvider {
     };
   }
 
+  reconstructXtreamUrl(relativePath) {
+    if (!this.baseUrl || !this.username || !this.password) return '';
+    // Never deserialize arbitrary cached paths; only the canonical movie/series ID.
+    const match = /^\/(movie|series)\/([A-Za-z0-9._-]{1,120})$/.exec(String(relativePath || ''));
+    if (!match) return '';
+    try {
+      const origin = new URL(this.baseUrl);
+      if (!/^https?:$/.test(origin.protocol) || origin.username || origin.password) return '';
+      return origin.origin + '/' + match[1] + '/' +
+        encodeURIComponent(this.username) + '/' + encodeURIComponent(this.password) +
+        '/' + match[2];
+    } catch (_) { return ''; }
+  }
+
   buildStreamIndex(catalog) {
     const index = new Map();
     if (!catalog) return index;
 
     for (const m of (catalog.movies || [])) {
-      if (m && m.id && m.streamUrl) {
+      if (m && m.id && (m.streamUrl || m.streamPath)) {
         const entry = {
           id: m.id,
           sourceItemId: m.sourceItemId,
           title: m.title,
-          streamUrl: m.streamUrl,
+          streamUrl: m.streamUrl || this.reconstructXtreamUrl(m.streamPath),
           type: 'movie',
           category: m.category,
           poster: m.poster,
@@ -720,7 +743,7 @@ class M3uProvider {
     for (const s of (catalog.series || [])) {
       for (const season of (s.seasons || [])) {
         for (const ep of (season.episodes || [])) {
-          if (ep && ep.id && ep.streamUrl) {
+          if (ep && ep.id && (ep.streamUrl || ep.streamPath)) {
             const entry = {
               id: ep.id,
               sourceItemId: ep.sourceItemId,
@@ -729,7 +752,7 @@ class M3uProvider {
               seriesTitle: s.title,
               season: ep.season,
               episode: ep.episode,
-              streamUrl: ep.streamUrl,
+              streamUrl: ep.streamUrl || this.reconstructXtreamUrl(ep.streamPath),
               type: 'episode',
               poster: ep.logo || s.poster,
               duration: ep.duration || 0
@@ -753,7 +776,11 @@ class M3uProvider {
 
     const targetId = contentId.trim();
 
-    // 1. If streamIndex not built yet but in-memory catalog exists, build it
+    // Cold start: restore the credential-free catalog first and derive Xtream
+    // stream URLs only in process memory using the current server secrets.
+    if (!this.inMemoryCatalog) {
+      try { await this.refresh(false); } catch (_) { /* optional remote fallback below */ }
+    }
     if ((!this.streamIndex || this.streamIndex.size === 0) && this.inMemoryCatalog) {
       this.streamIndex = this.buildStreamIndex(this.inMemoryCatalog);
     }
@@ -790,7 +817,7 @@ class M3uProvider {
       mime = 'video/x-msvideo';
     }
 
-    // Default duration: 4 hours (14400s) if duration is not set or 0, ensures at least 4.5h token validity
+    // Metadata only. The HTTP API issues a bounded, opaque media reference.
     const duration = (Number.isFinite(entry.duration) && entry.duration > 0) ? entry.duration : 14400;
 
     return {
