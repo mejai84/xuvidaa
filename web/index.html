@@ -23,7 +23,20 @@
       <h1 id="authTitle">Accede a TVVIDAA</h1>
       <p>Tu entretenimiento en un solo lugar.</p>
       <label for="password">Contraseña de acceso</label>
-      <input id="password" type="password" autocomplete="current-password" maxlength="256" required>
+      <div class="password-field">
+        <input id="password" type="password" autocomplete="current-password" maxlength="256" required>
+        <button id="passwordToggle" class="password-toggle" type="button"
+                aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar contraseña">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+               width="25" height="25" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true" focusable="false">
+            <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+            <path class="eye-slash" d="M3 3l18 18"></path>
+          </svg>
+        </button>
+      </div>
       <button type="submit" class="primary">Ingresar</button>
       <p id="loginError" class="error" role="alert"></p>
     </form>
