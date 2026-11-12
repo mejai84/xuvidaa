@@ -809,6 +809,22 @@ class M3uProvider {
     } catch (_) { return ''; }
   }
 
+  async getLiveChannels() {
+    const catalog = await this.refresh(false);
+    return catalog.liveChannels || [];
+  }
+
+  reconstructLiveUrl(relativePath) {
+    const match = /^\\/live\\/([A-Za-z0-9._-]{1,120})$/.exec(String(relativePath || ''));
+    if (!match || !this.isConfigured()) return '';
+    try {
+      const origin = new URL(this.baseUrl);
+      if (!/^https?:$/.test(origin.protocol) || origin.username || origin.password) return '';
+      return origin.origin + '/live/' +
+        encodeURIComponent(this.username) + '/' + encodeURIComponent(this.password) + '/' + match[1];
+    } catch (_) { return ''; }
+  }
+
   buildStreamIndex(catalog) {
     const index = new Map();
     if (!catalog) return index;
