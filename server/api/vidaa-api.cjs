@@ -3,6 +3,8 @@
 // TVVIDAA HTTP-only catalog API. No Luna, LG webOS services or Magis portal.
 const path = require('node:path');
 const net = require('node:net');
+const http = require('node:http');
+const https = require('node:https');
 const { IptvOrgProvider } = require('../providers/iptvOrgProvider.cjs');
 const { M3uProvider } = require('../providers/m3uProvider.cjs');
 const registry = require('./media-registry.cjs');
@@ -28,6 +30,62 @@ const allowed = new Set([
   'm3uMovies','m3uSeries','m3uDetail','m3uStatus','resolve','home','prewarm'
 ]);
 const requests = new Map();
+// Bounded, best-effort stream checks. Never probe credentialed/private URLs.
+const liveHealth = new Map();
+const healthQueue = [];
+let activeHealthChecks = 0;
+const HEALTH_TTL = 30 * 60 * 1000;
+function channelHealth(code) {
+  const entry = liveHealth.get(code);
+  return entry && entry.until > Date.now() ? entry.status : 'unverified';
+}
+function checkStream(uri) {
+  return new Promise(resolve => {
+    const client = uri.protocol === 'https:' ? https : http;
+    let settled = false;
+    const finish = status => { if (!settled) { settled = true; resolve(status); } };
+    const req = client.request(uri, {
+      method:'HEAD', timeout:3500,
+      headers:{'User-Agent':'TVVIDAA/1.0','Accept':'application/vnd.apple.mpegurl,video/*'}
+    }, response => {
+      response.resume();
+      const status = response.statusCode || 0;
+      finish(status >= 200 && status < 300 ? 'available' :
+        (status === 401 || status === 403 || status === 451) ? 'restricted' :
+        status === 405 || status === 501 ? 'unverified' : 'offline');
+    });
+    req.on('error', () => finish('offline'));
+    req.on('timeout', () => req.destroy());
+    req.end();
+  });
+}
+function pumpHealth() {
+  while (activeHealthChecks < 2 && healthQueue.length) {
+    const task = healthQueue.shift();
+    activeHealthChecks++;
+    checkStream(task.uri).then(status => {
+      liveHealth.set(task.code,{status,until:Date.now()+HEALTH_TTL});
+    }).finally(() => {activeHealthChecks--;pumpHealth();});
+  }
+}
+function scheduleHealth(channels) {
+  for (const ch of channels.slice(0,24)) {
+    const code = String(ch.channelCode || ch.id || '');
+    if (!code || liveHealth.has(code) || healthQueue.some(t=>t.code===code)) continue;
+    const candidate = (ch.streams || []).find(s=>s && s.url) || {url:ch.streamUrl};
+    let uri;
+    try {uri = new URL(candidate.url);} catch (_) {continue;}
+    if (!permittedLiveOrigin(uri) || isUnsafeHost(uri.hostname) || uri.username || uri.password) continue;
+    if (healthQueue.length >= 48) break;
+    liveHealth.set(code,{status:'unverified',until:Date.now()+60000});
+    healthQueue.push({code,uri});
+  }
+  if (liveHealth.size > 3000) {
+    for (const [key,value] of liveHealth) if (value.until < Date.now()) liveHealth.delete(key);
+    if (liveHealth.size > 3000) liveHealth.clear();
+  }
+  pumpHealth();
+}
 
 function respond(res, status, body) {
   res.setHeader('Cache-Control','no-store');
@@ -72,7 +130,8 @@ function safeChannel(ch) {
     id: String(ch.id || ch.channelCode || ''),
     channelCode: String(ch.channelCode || ch.id || ''),
     name: String(ch.name || ''), category: String(ch.category || ''),
-    logo: safeImage(ch.logo), hasStream: !!ch.hasStream
+    logo: safeImage(ch.logo), hasStream: !!ch.hasStream,
+    signalStatus: /^priv-/.test(String(ch.id || '')) ? 'unverified' : channelHealth(String(ch.channelCode || ch.id || ''))
   };
 }
 function safeDetail(d) {
@@ -139,9 +198,13 @@ async function handler(req, res) {
         country: /^(?:[A-Z]{2}|ALL)$/.test(String(input.country || 'ALL').toUpperCase()) ? String(input.country || 'ALL').toUpperCase() : 'ALL',
         pageNum,pageSize,search,onlyWithStreams:true
       });
-      return respond(res,200,{channels:(result.channels||[]).map(safeChannel),
+      scheduleHealth(result.channels || []);
+      const channels = (result.channels||[]).map(safeChannel);
+      const workingOnly = input.workingOnly === true;
+      return respond(res,200,{channels:workingOnly ? channels.filter(c=>c.signalStatus==='available') : channels,
         pageNum,total:result.total||0,hasMore:!!result.hasMore,
-        stale:!!result.stale,warning:result.stale?'Se muestra el catálogo IPTV-org guardado.':''});
+        stale:!!result.stale,warning:result.stale?'Se muestra el catálogo IPTV-org guardado.':'',
+        healthPending:workingOnly && channels.some(c=>c.signalStatus==='unverified')});
     }
     if (method === 'm3uMovies' || method === 'm3uSeries') {
       const args = {pageNum,pageSize,search,category:String(input.category||'all')};
