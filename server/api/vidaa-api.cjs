@@ -140,7 +140,17 @@ async function handler(req, res) {
       return respond(res,200,safeDetail(d));
     }
     if (method === 'm3uStatus') {
-      return respond(res,200,{configured:vod.isConfigured()});
+      // Diagnostics are metadata-only; no network fetch, host, username,
+      // password or private stream URL is ever returned.
+      const cache = vod.inMemoryCatalog;
+      return respond(res,200,{
+        configured:vod.isConfigured(),
+        cacheReady:!!cache,
+        updatedAt:cache ? (cache.fetchedAt || null) : null,
+        moviesCount:cache && cache.stats ? (cache.stats.moviesCount || 0) : null,
+        seriesCount:cache && cache.stats ? (cache.stats.seriesCount || 0) : null,
+        episodesCount:cache && cache.stats ? (cache.stats.episodesCount || 0) : null
+      });
     }
     if (method === 'resolve') {
       // Only identifiers from the provider's catalog are accepted. Never accept
