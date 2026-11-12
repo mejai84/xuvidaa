@@ -259,8 +259,8 @@ class M3uProvider {
       const formatRank = (url) => {
         try {
           const ext = new URL(url).pathname.toLowerCase();
-          if (/\\.m3u8$/.test(ext)) return 3;
-          if (/\\.mp4$/.test(ext)) return 2;
+          if (/\.m3u8$/.test(ext)) return 3;
+          if (/\.mp4$/.test(ext)) return 2;
         } catch (_) {}
         return 0;
       };
