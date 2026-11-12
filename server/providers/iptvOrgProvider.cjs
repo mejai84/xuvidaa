@@ -237,6 +237,7 @@ class IptvOrgProvider {
     // Filter channels for target country & NSFW
     const normalizedChannels = [];
     const categoryCount = new Map();
+    const countryCount = new Map();
     let totalTargetCountry = 0;
     let totalTargetCountryFiltered = 0;
     let totalWithStreams = 0;
@@ -244,7 +245,7 @@ class IptvOrgProvider {
 
     for (const ch of channels) {
       if (!ch || typeof ch !== 'object') continue;
-      if (ch.country !== this.country) continue;
+      // Index all countries; the default country is applied at query time.
       totalTargetCountry++;
 
       // Filter NSFW
@@ -275,6 +276,7 @@ class IptvOrgProvider {
       const mainCategoryName = categoryNames[0] || 'General';
 
       if (hasStreams) {
+        countryCount.set(ch.country, (countryCount.get(ch.country) || 0) + 1);
         for (const catId of chCategories) {
           categoryCount.set(catId, (categoryCount.get(catId) || 0) + 1);
         }
@@ -347,6 +349,7 @@ class IptvOrgProvider {
         totalWithoutStreams
       },
       categories,
+      countries: [...countryCount.entries()].map(([code,count]) => ({code,name:(countriesList.find(c => c.code === code) || {}).name || code,count})).sort((a,b)=>a.name.localeCompare(b.name,'es')),
       channels: normalizedChannels
     };
   }
@@ -441,7 +444,7 @@ class IptvOrgProvider {
     const data = await this.refresh(false);
     return {
       returnValue: true,
-      categories: data.categories || [], stale: !!data.stale, warning: data.warning || ''
+      categories: data.categories || [], countries: data.countries || [], stale: !!data.stale, warning: data.warning || ''
     };
   }
 
@@ -450,6 +453,7 @@ class IptvOrgProvider {
     const options = params || {};
 
     const category = options.category || options.columnId || 'all';
+    const country = String(options.country || this.country).toUpperCase();
     const pageNum = Math.max(1, parseInt(options.pageNum || options.page, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(options.pageSize || options.limit, 10) || 30));
     const searchQuery = options.search || options.value || '';
@@ -457,6 +461,7 @@ class IptvOrgProvider {
 
     // Filter pool
     let pool = data.channels || [];
+    if (country !== 'ALL') pool = pool.filter(ch => ch.country === country);
     if (onlyWithStreams) {
       pool = pool.filter((ch) => ch.hasStream && ch.streamUrl);
     }
