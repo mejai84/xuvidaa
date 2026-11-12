@@ -123,7 +123,12 @@ function createHandler(deps) {
       const options={
         protocol:'https:',method:req.method,hostname:url.hostname,servername:url.hostname,
         port:443,path:url.pathname+url.search,headers,timeout:25000,
-        lookup:(_hostname,_options,callback)=>callback(null,address,4)
+        lookup:(_hostname,options,callback)=>{
+          // Node 22's family auto-selection requests the dns.lookup(all:true)
+          // result shape. Both forms remain pinned to the validated IPv4.
+          if(options && options.all)return callback(null,[{address,family:4}]);
+          callback(null,address,4);
+        }
       };
       const upstream=makeRequest(options,(remote)=>{
         const status=remote.statusCode||502;

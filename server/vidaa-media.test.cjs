@@ -83,6 +83,26 @@ test('private and metadata DNS targets are blocked before any upstream call',asy
   assert.equal(relay.publicIPv4('169.254.169.254'),false);
   assert.equal(relay.publicIPv4('1.1.1.1'),true);
 });
+
+test('pinned HTTPS lookup supports Node 22 all:true and single-address callback contracts',async()=>{
+  const t=token('https://cdn.example/video.mp4');
+  const response=await mediaRequest(t);
+  assert.equal(response.status,200);
+  assert.equal(response.upstream.hostname,'cdn.example');
+  assert.equal(response.upstream.servername,'cdn.example');
+  assert.equal(response.upstream.protocol,'https:');
+  assert.equal(response.upstream.port,443);
+  const lookup=(options)=>new Promise(resolve=>response.upstream.lookup('cdn.example',options,(...args)=>resolve(args)));
+  assert.deepEqual(await lookup({all:true}),[null,[{address:'1.1.1.1',family:4}]]);
+  assert.deepEqual(await lookup({all:false}),[null,'1.1.1.1',4]);
+});
+
+test('Node 22 lookup compatibility never permits a mixed public and private DNS result',async()=>{
+  const t=token('https://cdn.example/video.mp4');
+  const response=await mediaRequest(t,{addresses:[{address:'1.1.1.1',family:4},{address:'10.2.3.4',family:4}]});
+  assert.equal(response.status,403);
+  assert.equal(response.upstream,undefined);
+});
 test('Range 206 status and byte-range headers are preserved',async()=>{
   const t=token('https://cdn.example/movie/private-user/private-password/123.mp4');
   const r=await mediaRequest(t,{
