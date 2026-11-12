@@ -50,7 +50,7 @@ function mediaRequest(t,opts) {
         upstream.destroy=()=>{};
         upstream.end=()=>process.nextTick(()=>handler(mockResponse(o.status||200,o.headers||{'content-type':'video/mp4'},o.body||'testdata')));
         return upstream;
-      }
+      },
       httpRequest:(params,handler)=>{
         captured=params;
         const upstream=new EventEmitter();
