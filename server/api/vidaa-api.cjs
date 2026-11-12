@@ -6,7 +6,7 @@ const net = require('node:net');
 const { IptvOrgProvider } = require('../providers/iptvOrgProvider.cjs');
 const { M3uProvider } = require('../providers/m3uProvider.cjs');
 const registry = require('./media-registry.cjs');
-const {permittedMediaOrigin} = require('./lib/vod-origin-policy.cjs');
+const {permittedMediaOrigin,permittedLiveOrigin} = require('./lib/vod-origin-policy.cjs');
 
 const cacheDir = path.join(__dirname, '..', '.cache');
 const live = new IptvOrgProvider({
@@ -215,8 +215,7 @@ async function handler(req, res) {
         if (!candidate || !candidate.url) continue;
         let uri;
         try { uri=new URL(candidate.url); } catch (_) { continue; }
-        if (uri.protocol !== 'https:' || uri.username || uri.password ||
-            isUnsafeHost(uri.hostname) || uri.port && uri.port !== '443') continue;
+        if (!permittedLiveOrigin(uri) || isUnsafeHost(uri.hostname)) continue;
         selected=uri;
         break;
       }
@@ -225,7 +224,7 @@ async function handler(req, res) {
       const mime=hls?'application/vnd.apple.mpegurl':'video/mp2t';
       const issued=registry.register({
         url:selected.toString(),hosts:[selected.hostname.toLowerCase()],
-        headers:{},mime,duration:0
+        source:'live',headers:{},mime,duration:0
       },Date.now()+15*60*1000);
       if (!issued) return respond(res,503,{errorText:'Servidor multimedia no configurado'});
       return respond(res,200,{
