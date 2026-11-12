@@ -8,7 +8,16 @@
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-  <section id="auth" class="auth-screen" aria-labelledby="authTitle">
+  <!-- Splash centered on the actual viewport, independent of device resolution. -->
+  <section id="splash" class="splash-screen" role="status" aria-live="polite" aria-label="Iniciando TVVIDAA">
+    <div class="splash-content">
+      <div class="brand splash-brand"><span>TV</span>VIDAA</div>
+      <div class="splash-spinner" aria-hidden="true"></div>
+      <p>Preparando tu entretenimiento…</p>
+    </div>
+  </section>
+
+  <section id="auth" class="auth-screen" aria-labelledby="authTitle" hidden>
     <form id="loginForm" class="auth-card">
       <div class="brand"><span>TV</span>VIDAA</div>
       <h1 id="authTitle">Accede a TVVIDAA</h1>
@@ -56,6 +65,12 @@
           </select>
         </div>
         <p id="notice" class="notice" role="status"></p>
+        <div id="catalogLoader" class="catalog-loader" role="status" aria-live="polite" hidden>
+          <div class="catalog-loader-inner">
+            <div class="splash-spinner" aria-hidden="true"></div>
+            <span id="catalogLoaderText">Cargando canales…</span>
+          </div>
+        </div>
         <div id="results" class="catalog" aria-live="polite"></div>
         <div class="pagination">
           <button id="more" type="button" class="secondary" hidden>Cargar más</button>
