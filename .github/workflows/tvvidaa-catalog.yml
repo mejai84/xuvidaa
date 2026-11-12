@@ -5,6 +5,7 @@ on:
     branches:
       - hostinger-vps
       - refactor/vidaa-cleanup
+      - feature/vidaa-familia-ux
   pull_request:
     branches:
       - hostinger-vps
