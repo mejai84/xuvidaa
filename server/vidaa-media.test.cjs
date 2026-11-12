@@ -51,6 +51,13 @@ function mediaRequest(t,opts) {
         upstream.end=()=>process.nextTick(()=>handler(mockResponse(o.status||200,o.headers||{'content-type':'video/mp4'},o.body||'testdata')));
         return upstream;
       }
+      httpRequest:(params,handler)=>{
+        captured=params;
+        const upstream=new EventEmitter();
+        upstream.destroy=()=>{};
+        upstream.end=()=>process.nextTick(()=>handler(mockResponse(o.status||200,o.headers||{'content-type':'video/mp4'},o.body||'testdata')));
+        return upstream;
+      }
     });
     const req=new EventEmitter();
     req.method=o.method||'GET';
@@ -143,4 +150,45 @@ test('rejects HLS cross-host child and redirect safely',async()=>{
   assert.equal(m.status,502);
   const d=await mediaRequest(t,{status:302,headers:{location:'https://evil.example/video.mp4'}});
   assert.equal(d.status,502);
+});
+
+test('HTTP VOD is disabled by default, even for a public host',async()=>{
+  const savedAck=process.env.VIDAA_HTTP_VOD_ACK;
+  const savedHosts=process.env.VIDAA_HTTP_VOD_HOSTS;
+  try {
+    delete process.env.VIDAA_HTTP_VOD_ACK;
+    process.env.VIDAA_HTTP_VOD_HOSTS='cdn.example:8080';
+    assert.equal(registry.register({url:'http://cdn.example:8080/movie.mp4',hosts:['cdn.example']}),null);
+    process.env.VIDAA_HTTP_VOD_ACK='yes';
+    assert.equal(registry.register({url:'http://other.example:8080/movie.mp4',hosts:['other.example']}),null);
+    assert.equal(registry.register({url:'http://127.0.0.1:8080/movie.mp4',hosts:['127.0.0.1']}),null);
+  } finally {
+    if(savedAck===undefined)delete process.env.VIDAA_HTTP_VOD_ACK;else process.env.VIDAA_HTTP_VOD_ACK=savedAck;
+    if(savedHosts===undefined)delete process.env.VIDAA_HTTP_VOD_HOSTS;else process.env.VIDAA_HTTP_VOD_HOSTS=savedHosts;
+  }
+});
+test('allowlisted HTTP VOD uses pinned DNS, Range and never exposes origin',async()=>{
+  const savedAck=process.env.VIDAA_HTTP_VOD_ACK;
+  const savedHosts=process.env.VIDAA_HTTP_VOD_HOSTS;
+  try {
+    process.env.VIDAA_HTTP_VOD_ACK='yes';
+    process.env.VIDAA_HTTP_VOD_HOSTS='cdn.example:8080';
+    const t=token('http://cdn.example:8080/movie/user/pass/123.mp4');
+    const r=await mediaRequest(t,{status:206,
+      requestHeaders:{range:'bytes=100-199'},
+      headers:{'content-type':'video/mp4','content-range':'bytes 100-199/999','content-length':'100'},
+      body:'partial'});
+    assert.equal(r.status,206);
+    assert.equal(r.upstream.protocol,'http:');
+    assert.equal(r.upstream.port,8080);
+    assert.equal(r.upstream.headers.Range,'bytes=100-199');
+    assert.doesNotMatch(JSON.stringify(r.headers),/cdn.example|user|pass/);
+    const denied=await mediaRequest(t,{addresses:[{address:'10.1.2.3',family:4}]});
+    assert.equal(denied.status,403);
+    const redirect=await mediaRequest(t,{status:302,headers:{location:'http://evil.example/movie.mp4'}});
+    assert.equal(redirect.status,502);
+  } finally {
+    if(savedAck===undefined)delete process.env.VIDAA_HTTP_VOD_ACK;else process.env.VIDAA_HTTP_VOD_ACK=savedAck;
+    if(savedHosts===undefined)delete process.env.VIDAA_HTTP_VOD_HOSTS;else process.env.VIDAA_HTTP_VOD_HOSTS=savedHosts;
+  }
 });
