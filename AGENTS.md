@@ -12,7 +12,8 @@
 
 ## Seguridad obligatoria
 - Contraseñas, M3U upstream y secretos exclusivamente en variables del servidor; jamás en Git, navegador, logs ni screenshots.
-- No habilitar reproducción VOD sin pruebas de referencias opacas, autenticación, expiración, `Range` y SSRF.
+- La reproducción VOD usa únicamente IDs internos, referencias opacas y relay HTTPS con DNS/SSRF y `Range`. Mantener las pruebas de expiración, reproducción HLS y validación del catálogo tras un reinicio.
+- No habilitar HTTP inseguro o formatos sin soporte/transcodificación comprobado. No afirmar que el Hisense real reproduce video/audio hasta verificar físicamente.
 - No convertir `/api/media` en proxy abierto; validar destinos HTTPS, IP pública y DNS, mantener `Host` y SNI correctos.
 - Proteger APIs con sesión o una alternativa expresamente autorizada; desactivar clave solo con aviso de exposición pública.
 - La capa web debe funcionar con control remoto D-pad, OK, Back, foco visible y teclado VIDAA.
