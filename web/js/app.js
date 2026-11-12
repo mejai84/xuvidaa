@@ -14,10 +14,16 @@
     series: ['SERIES', 'Series', 'Explora temporadas y episodios.', 'Buscar series...']
   };
   var endpoints = { tv: 'liveChannels', movies: 'm3uMovies', series: 'm3uSeries' };
+  var family = window.VIDAAFamily ? window.VIDAAFamily.create(window.localStorage) : null;
+  var sectionItems = {tv:[],movies:[],series:[]};
+  var detailItem = null, playerItem = null, playerKind = 'tv';
+  var lastProgressSave = 0;
+  var previousScreen = 'catalog';
   var state = {
     section: 'tv', query: '', category: 'all', page: 0, more: false, total: 0,
     busy: false, requestId: 0, searchTimer: null, screen: 'login',
-    hls: null, streamTimer: null, currentChannel: null, lastFocus: null
+    hls: null, streamTimer: null, currentChannel: null, lastFocus: null,
+    view: 'all', lastFailure: '', retryCount: 0, diagnosticSeq: 0
   };
   function show(id, visible) { $(id).hidden = !visible; }
   function text(id, value) { $(id).textContent = value || ''; }
@@ -72,6 +78,7 @@
     show('detail', false);
     show('player', false);
     state.screen = 'catalog';
+    if (family) $('profile').value = family.active();
     changeSection('tv');
   }
   function login(event) {
@@ -106,6 +113,7 @@
     state.section = section;
     state.query = '';
     state.category = 'all';
+    state.view = 'all';
     state.requestId += 1;
     if (state.searchTimer) { clearTimeout(state.searchTimer); state.searchTimer = null; }
     $('search').value = '';
@@ -126,8 +134,65 @@
     category.value = 'all';
     $('results').textContent = '';
     show('more', false);
+    updateQuickActions();
     if (section === 'tv') loadCategories();
     fetchPage(1,false);
+  }
+
+  function currentKind() { return state.section; }
+  function quickButton(name, current) {
+    $(name).className = 'view-button' + (state.view === current ? ' selected' : '');
+    $(name).setAttribute('aria-pressed', state.view === current ? 'true' : 'false');
+  }
+  function updateQuickActions() {
+    quickButton('allFilter','all');
+    quickButton('favoritesFilter','favorites');
+    quickButton('recentFilter','recent');
+    quickButton('continueFilter','continue');
+    var last = family && family.lastChannel();
+    show('lastChannel', state.section === 'tv' && !!last);
+    show('continueFilter', state.section !== 'tv' && !!family && family.progress().some(function (p) {
+      return p.kind === state.section;
+    }));
+    $('category').disabled = state.view !== 'all';
+    var recent = family && family.progress().filter(function (p) {return p.kind === state.section;});
+    if (recent && recent.length && state.section !== 'tv') {
+      text('continueHint', 'Continúa donde quedaste: ' + recent[recent.length-1].title);
+      show('continueHint',true);
+    } else { show('continueHint',false); }
+  }
+  function setView(view) {
+    if (view !== 'all' && view !== 'favorites' && view !== 'recent' && view !== 'continue') return;
+    state.view = view;
+    state.requestId++;
+    updateQuickActions();
+    if (view === 'all') fetchPage(1,false);
+    else renderPersonalView();
+  }
+  function renderPersonalView() {
+    var section=state.section, items=[];
+    state.busy=false;
+    show('catalogLoader',false);
+    show('more',false);
+    $('results').textContent='';
+    if (family) {
+      if (state.view === 'favorites') items = family.favorites(section);
+      if (state.view === 'recent') items = family.recent().filter(function (x) {return x.kind === section;});
+      if (state.view === 'continue') items = family.progress().filter(function (x) {return x.kind === section;});
+    }
+    var q=String(state.query||'').toLowerCase();
+    if (q) items = items.filter(function (x) {return String(x.title||'').toLowerCase().indexOf(q) !== -1;});
+    text('count',items.length+' resultados');
+    error(items.length ? '' : 'Todavía no tienes elementos guardados en esta sección.');
+    items.forEach(function (item) {
+      addCard({
+        id:item.id,channelCode:item.kind==='tv'?item.id:undefined,
+        title:item.title,name:item.title,category:item.category,year:item.year
+      },section);
+    });
+  }
+  function rememberWatched(kind,item) {
+    if (family) { family.watched(kind,item); updateQuickActions(); }
   }
   function loadCategories() {
     api('liveCategories',{},function(err,body) {
@@ -146,6 +211,7 @@
     });
   }
   function fetchPage(page,append) {
+    if (state.view !== 'all') return renderPersonalView();
     var id=++state.requestId, section=state.section;
     state.busy=true;
     show('more', false);
@@ -180,6 +246,8 @@
       } else {
         error('');
       }
+      if (!append) sectionItems[section]=items.slice();
+      else sectionItems[section]=sectionItems[section].concat(items);
       for (var i=0;i<items.length;i++) addCard(items[i],section);
       show('more', state.more);
     });
@@ -211,7 +279,10 @@
     if (state.searchTimer) clearTimeout(state.searchTimer);
     state.query = $('search').value.slice(0,100).trim();
     state.requestId += 1;
-    state.searchTimer=setTimeout(function(){fetchPage(1,false);},350);
+    state.searchTimer=setTimeout(function(){
+      if (state.view === 'all') fetchPage(1,false);
+      else renderPersonalView();
+    },350);
   }
   function clearSearch() { $('search').value=''; changeQuery(); $('search').focus(); }
   function openDetail(item) {
