@@ -197,3 +197,46 @@ button[hidden], section[hidden], div[hidden] { display: none !important; }
   .focus-card { width: 250px; }
   .cover { height: 260px; min-height: 260px; }
 }
+
+
+/* TVVIDAA Premium — blanco perla y dorado; overrides conservadores VIDAA */
+html { color-scheme: light; }
+html, body { background: #f9f7f1; color: #1d2028; }
+#shell { background: #fcfbf7; }
+.splash-screen, .auth-screen { background: radial-gradient(ellipse at 50% 15%, #ffffff, #f5f0e5); color: #1d2028; }
+.splash-brand span, .brand span, .eyebrow { color: #aa760b; }
+.splash-content p, .auth-card p { color: #615b50; }
+.splash-spinner { border-color: #eae0c7; border-top-color: #b8860b; border-right-color: #dfb84e; }
+@media (prefers-reduced-motion: reduce) { .splash-spinner { border-color: #b8860b; } }
+.auth-card { background: #fff; color: #1d2028; border-color: #e6d7b3; box-shadow: 0 18px 55px rgba(89,68,25,.12); }
+.auth-card label { color: #302a21; }
+.auth-card input { background: #fffdf8; color: #1d2028; border-color: #cdbd99; }
+.auth-card input:focus-visible { border-color: #a8750a; box-shadow: 0 0 0 3px rgba(184,134,11,.22); }
+.password-toggle { color: #705c35; }
+.password-toggle:hover, .password-toggle:focus-visible { background: #f3e9d2; color: #1d2028; }
+.topbar { background: #fff; border-bottom-color: #e8dfcd; color: #1d2028; }
+.connection, .profile-box { color: #615b50; }
+.profile-box select { background: #fff; color: #25221d; border-color: #d5c6a4; }
+.profile-box select:focus-visible { border-color: #b8860b; }
+.sidebar { background: #fff; border-color: #e8dfcd; }
+.content { background: #fcfbf7; color: #1d2028; }
+.primary, .nav-button.selected, .view-button.selected { background: linear-gradient(135deg,#e6c66c,#b8860b 65%,#956400); color: #211a0b; border-color: #ae7b13; }
+.primary:hover { background: #e3bc54; }
+.primary:active { background: #b8860b; }
+.secondary, .icon-button, .view-button { background: #fff; color: #2c2922; border: 1px solid #ded3b8; box-shadow: 0 2px 8px rgba(70,55,20,.06); }
+.secondary:hover, .icon-button:hover, .view-button:hover { background: #f8efd9; color: #1d2028; border-color: #b8860b; }
+button:focus-visible, input:focus-visible, select:focus-visible, .focus-card:focus-visible, .nav-button:focus-visible { outline: 4px solid #b8860b; outline-offset: 3px; }
+.nav-button { color: #343029; }
+.nav-button:hover, .nav-button:focus-visible { background: #f6ecd5; color: #282016; }
+.focus-card, .catalog-item, .diagnostic-panel { color: #24221e; }
+.focus-card { background: #fff; border-color: #e7dcc3; }
+.focus-card:hover, .focus-card:focus-visible { border-color: #b8860b; box-shadow: 0 8px 24px rgba(124,88,13,.18); }
+.catalog-loader-inner { color: #635c4f; }
+.catalog-loader-inner .splash-spinner { border-top-color: #b8860b; }
+.continue-hint { background: #f7efde; color: #5a4a2d; }
+.diagnostic-panel p, .diagnostic-row span, .privacy-note { color: #635c4f; }
+.diagnostic-row { border-color: #e7dcc3; }
+.diagnostic-row strong { color: #29251f; }
+.error, .player-message { color: #a22929; }
+.player-screen, .player-screen video { background: #000; }
+.player-screen .player-message { color: #ffdddd; }
