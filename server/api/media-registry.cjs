@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const codec = require('./lib/media-token.js');
 const pool = new Map();
 const MAX_ENTRIES = 25000;
-const DEFAULT_TTL = 3 * 60 * 60 * 1000;
+const DEFAULT_TTL = 8 * 60 * 60 * 1000;
 const secret = () => process.env.MEDIA_TOKEN_SECRET || '';
 
 function clean() {
