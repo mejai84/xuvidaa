@@ -32,7 +32,7 @@ function mediaRequest(t,opts) {
   return new Promise((resolve,reject)=>{
     let captured,called=false;
     const res=new Writable({write(chunk,_encoding,cb){pieces.push(Buffer.from(chunk));cb();}});
-    const pieces=[],headers={};res.headersSent=false;res.writableEnded=false;
+    const pieces=[],headers={};res.headersSent=false;
     res.setHeader=function(k,v){headers[k.toLowerCase()]=v;return res;};
     res.status=function(c){res.statusCode=c;return res;};
     res.json=function(body){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(body));return res;};
