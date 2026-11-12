@@ -19,6 +19,7 @@ function startRemux({plan,input,playlistPath,spawnProcess=spawn,timeoutMs=30*60*
   if (!child || typeof child.once!=='function' || typeof child.kill!=='function') throw new TypeError('Proceso inválido');
   let settled=false;
   let timer;
+  let stopping=false;
   const done=new Promise((resolve,reject)=>{
     function finish(err,code) {
       if(settled)return;
@@ -29,11 +30,11 @@ function startRemux({plan,input,playlistPath,spawnProcess=spawn,timeoutMs=30*60*
       else reject(new Error('FFmpeg finalizó sin completar la conversión'));
     }
     child.once('error',err=>finish(err));
-    child.once('close',code=>finish(null,code));
-    timer=setTimeout(()=>{try{child.kill('SIGKILL');}catch(_){};finish(new Error('Tiempo de conversión agotado'));},timeoutMs);
+    child.once('close',code=>finish(stopping ? new Error('Conversión cancelada') : null,code));
+    timer=setTimeout(()=>{stopping=true;try{child.kill('SIGKILL');}catch(_){};finish(new Error('Tiempo de conversión agotado'));},timeoutMs);
     timer.unref?.();
   });
-  function stop(){if(!settled){try{child.kill('SIGKILL');}catch(_){};}}
+  function stop(){if(!settled){stopping=true;try{child.kill('SIGKILL');}catch(_){};}}
   return {done,stop};
 }
 module.exports={startRemux};
