@@ -120,13 +120,14 @@ async function handler(req, res) {
     if (method === 'ping') return respond(res,200,{service:'TVVIDAA-web',ready:true});
     if (method === 'liveCategories') {
       const r = await live.getCategories();
-      return respond(res,200,{stale:!!r.stale,warning:r.stale?'Se muestra el catálogo IPTV-org guardado.':'',categories:(r.categories||[]).map(c=>({
+      return respond(res,200,{stale:!!r.stale,warning:r.stale?'Se muestra el catálogo IPTV-org guardado.':'',countries:(r.countries||[]).map(c=>({code:String(c.code||''),name:String(c.name||c.code||'')})),categories:(r.categories||[]).map(c=>({
         id:String(c.id || ''),name:String(c.name || c.id || '')
       }))});
     }
     if (method === 'liveChannels') {
       const result = await live.getChannels({
         columnId: String(input.columnId || 'all'),
+        country: /^[A-Z]{2}$|^ALL$/.test(String(input.country||'CO').toUpperCase()) ? String(input.country||'CO').toUpperCase() : 'CO',
         pageNum,pageSize,search,onlyWithStreams:true
       });
       return respond(res,200,{channels:(result.channels||[]).map(safeChannel),
