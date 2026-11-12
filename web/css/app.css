@@ -1,0 +1,94 @@
+/* TVVIDAA: standalone responsive HTML5 UI, compatible with older VIDAA browsers. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; width: 100%; min-height: 100%; background: #080d18; color: #eef4ff; font-family: Arial, Helvetica, sans-serif; }
+body { overflow-x: hidden; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button[hidden], section[hidden], div[hidden] { display: none !important; }
+button:focus, input:focus, select:focus, .focus-card:focus { outline: 3px solid #9cc5ff; outline-offset: 3px; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.brand { font-size: 26px; line-height: 1.25; font-weight: 900; letter-spacing: 1px; white-space: nowrap; }
+.brand span { color: #74adff; }
+.auth-screen { position: fixed; top: 0; bottom: 0; left: 0; right: 0; display: -webkit-flex; display: flex; align-items: center; justify-content: center; padding: 24px; background: #080d18; z-index: 20; overflow-y: auto; }
+.auth-card { width: 430px; max-width: 100%; padding: 40px; background: #141e31; border-radius: 18px; border: 1px solid #334660; box-shadow: 0 18px 50px rgba(0,0,0,.32); }
+.auth-card h1 { font-size: 27px; margin: 28px 0 10px; }
+.auth-card p { color: #c0cce0; line-height: 1.5; }
+.auth-card label { display: block; margin: 22px 0 9px; color: #fff; }
+.auth-card input { width: 100%; height: 55px; padding: 0 16px; background: #080e1c; color: #fff; border: 1px solid #52617d; border-radius: 9px; font-size: 21px; }
+.primary { min-height: 54px; padding: 12px 22px; background: #425eff; color: white; border: 0; border-radius: 9px; font-weight: bold; }
+.auth-card .primary { display: block; width: 100%; margin-top: 19px; }
+.error { min-height: 20px; color: #ffb0bb !important; }
+.topbar { width: 100%; height: 76px; border-bottom: 1px solid #243047; padding: 0 34px; display: -webkit-flex; display: flex; align-items: center; justify-content: space-between; background: #0c1424; }
+.top-actions { display: -webkit-flex; display: flex; align-items: center; gap: 12px; }
+.connection { font-size: 13px; color: #94a6c3; margin-right: 8px; }
+.icon-button, .secondary { background: #1a2842; border: 1px solid #3d5173; border-radius: 9px; color: #eef4ff; padding: 10px 16px; min-height: 44px; }
+.icon-button:hover, .secondary:hover { background: #2b3b5b; }
+.layout { display: -webkit-flex; display: flex; min-height: calc(100vh - 76px); }
+.sidebar { width: 236px; -webkit-flex: 0 0 236px; flex: 0 0 236px; padding: 27px 14px; background: #0b1423; border-right: 1px solid #233249; }
+.nav-button { width: 100%; display: block; text-align: left; margin-bottom: 11px; border: 1px solid transparent; background: transparent; color: #b7c6df; border-radius: 12px; padding: 18px 16px; font-size: 18px; font-weight: 600; white-space: nowrap; }
+.nav-button span { display: inline-block; margin-right: 9px; color: #acc8ff; }
+.nav-button.selected { color: #fff; border-color: #6b86e3; background: #29406e; }
+.content { -webkit-flex: 1; flex: 1; min-width: 0; padding: 36px 42px 70px; }
+.page-heading { display: -webkit-flex; display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 28px; }
+.eyebrow { letter-spacing: 2px; color: #91b6fc; font-size: 12px; font-weight: 700; }
+.page-heading h1 { font-size: 36px; margin: 11px 0 7px; line-height: 1.15; }
+.page-heading p { color: #9dafce; margin: 0; font-size: 16px; }
+.counter { color: #9eadd0; font-size: 14px; }
+.filters { display: -webkit-flex; display: flex; align-items: center; gap: 11px; margin: 0 0 24px; }
+.searchbox { display: -webkit-flex; display: flex; align-items: center; gap: 10px; -webkit-flex: 1; flex: 1; min-width: 0; max-width: 600px; background: #16253d; border: 1px solid #3a5175; border-radius: 10px; padding: 0 15px; height: 52px; }
+.searchbox span { font-size: 27px; color: #aac9ff; }
+.searchbox input { -webkit-flex: 1; flex: 1; min-width: 0; width: 100%; height: 48px; background: transparent; color: white; border: 0; font-size: 18px; outline: 0; }
+.searchbox input:focus { outline: 0; }
+.searchbox:focus-within { border-color: #97bbff; box-shadow: 0 0 0 2px #7099e1; }
+.searchbox input::-webkit-input-placeholder { color: #a5b4ca; }
+#category { min-width: 180px; max-width: 230px; background: #17283e; border: 1px solid #3b5172; color: white; border-radius: 9px; padding: 12px; height: 52px; }
+.notice { color: #f4c77b; font-size: 15px; min-height: 22px; margin: 9px 0 16px; }
+.catalog { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: -9px; min-height: 150px; }
+.focus-card { position: relative; display: block; width: 172px; min-height: 220px; margin: 9px; border: 2px solid #283c5c; border-radius: 13px; background: #111b2c; overflow: hidden; padding: 0; color: #fff; text-align: left; }
+.focus-card:hover, .focus-card:focus { background: #1d304d; border-color: #95baff; }
+.cover { width: 100%; height: 178px; display: -webkit-flex; display: flex; justify-content: center; align-items: center; background: #1b2a44; color: #7199d8; font-size: 32px; text-align: center; }
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.channel-card .cover img { object-fit: contain; padding: 15px; }
+.focus-card .title { display: block; margin: 11px 10px 5px; font-size: 15px; line-height: 1.35; min-height: 40px; overflow: hidden; }
+.focus-card .subtitle { display: block; margin: 0 10px 12px; font-size: 11px; color: #a7badd; }
+.pagination { text-align: center; margin-top: 22px; }
+.overlay { position: fixed; z-index: 15; left: 0; right: 0; top: 0; bottom: 0; background: #070b14; overflow-y: auto; padding: 28px; }
+.detail-panel { max-width: 1100px; margin: 0 auto; }
+.back-button { margin-bottom: 23px; }
+.detail-inner { display: -webkit-flex; display: flex; gap: 36px; }
+.detail-poster { width: 260px; -webkit-flex: 0 0 260px; flex: 0 0 260px; height: 380px; border-radius: 12px; background: #17243a; overflow: hidden; }
+.detail-poster img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.detail-info { -webkit-flex: 1; flex: 1; min-width: 0; }
+.detail-info h2 { font-size: 36px; margin: 10px 0 12px; }
+.detail-info p { color: #bac9e0; font-size: 17px; }
+.season-list h3 { font-size: 19px; margin: 20px 0 13px; color: #9ec0fa; }
+.episode-button { display: block; width: 100%; max-width: 550px; text-align: left; padding: 15px 18px; margin: 9px 0; border: 1px solid #394d70; border-radius: 9px; background: #182840; color: #fff; }
+.episode-button:disabled { opacity: .75; }
+.player-screen { position: fixed; inset: 0; top: 0; left: 0; right: 0; bottom: 0; z-index: 30; background: #000; display: -webkit-flex; display: flex; flex-direction: column; justify-content: center; }
+.player-top { position: absolute; z-index: 3; top: 20px; left: 20px; right: 20px; display: -webkit-flex; display: flex; justify-content: space-between; align-items: center; color: white; }
+.player-screen video { display: block; width: 100%; height: 100%; max-height: 100vh; object-fit: contain; background: #000; }
+.player-message { position: absolute; bottom: 28px; left: 25px; right: 25px; color: #f6c6c6; text-align: center; pointer-events: none; }
+@media (min-width: 1600px) {
+  .focus-card { width: 195px; }
+  .cover { height: 215px; }
+}
+@media (max-width: 800px) {
+  .topbar { height: 62px; padding: 0 17px; }
+  .brand { font-size: 21px; }
+  .connection { display: none; }
+  .layout { display: block; min-height: calc(100vh - 62px); }
+  .sidebar { width: 100%; display: -webkit-flex; display: flex; border-right: 0; border-bottom: 1px solid #243047; padding: 9px; }
+  .nav-button { -webkit-flex: 1; flex: 1; width: auto; margin: 0 4px; font-size: 13px; padding: 11px 6px; text-align: center; }
+  .nav-button span { display: none; }
+  .content { padding: 22px 14px 50px; }
+  .page-heading { align-items: flex-start; }
+  .page-heading h1 { font-size: 26px; }
+  .filters { -webkit-flex-wrap: wrap; flex-wrap: wrap; }
+  .searchbox { max-width: none; -webkit-flex: 1 1 100%; flex: 1 1 100%; }
+  .focus-card { width: calc(50% - 18px); min-height: 210px; }
+  .cover { height: 185px; }
+  .detail-inner { display: block; }
+  .detail-poster { width: 145px; height: 210px; margin-bottom: 20px; }
+  .detail-info h2 { font-size: 26px; }
+}
+@media (max-width: 390px) { .nav-button { font-size: 11px; } .icon-button { padding: 9px; } .cover { height: 135px; } }
