@@ -253,6 +253,7 @@
     });
   }
   function addCard(item,section) {
+    var entry=make('div','catalog-entry');
     var button=make('button','focus-card'+(section==='tv'?' channel-card':''));
     button.type='button';
     var cover=make('span','cover');
@@ -261,7 +262,7 @@
       image.alt='';
       image.loading='lazy';
       image.src=item.logo || item.poster;
-      image.onerror=function(){ image.parentNode.removeChild(image); };
+      image.onerror=function(){ if(image.parentNode) image.parentNode.removeChild(image); };
       cover.appendChild(image);
     } else { cover.textContent=section==='tv'?'▣':section==='movies'?'▶':'▤'; }
     button.appendChild(cover);
@@ -271,10 +272,26 @@
     button.onclick=function () {
       state.lastFocus=button;
       if (section==='tv') openLive(item);
-      else openDetail(item);
+      else if (state.view==='continue' || (state.view==='recent' && /^ep-/.test(item.id))) {
+        playVod(item,section);
+      } else openDetail(item);
     };
-    $('results').appendChild(button);
+    entry.appendChild(button);
+    var star=make('button','favorite-button',family && family.isFavorite(section,item.channelCode||item.id)?'★':'☆');
+    star.type='button';
+    star.setAttribute('aria-label','Cambiar favorito');
+    star.setAttribute('aria-pressed',family && family.isFavorite(section,item.channelCode||item.id)?'true':'false');
+    star.onclick=function() {
+      if(!family) return;
+      var now=family.toggleFavorite(section,item);
+      star.textContent=now?'★':'☆';
+      star.setAttribute('aria-pressed',now?'true':'false');
+      if(state.view==='favorites')renderPersonalView();
+    };
+    entry.appendChild(star);
+    $('results').appendChild(entry);
   }
+
   function changeQuery() {
     if (state.searchTimer) clearTimeout(state.searchTimer);
     state.query = $('search').value.slice(0,100).trim();
@@ -286,38 +303,85 @@
   }
   function clearSearch() { $('search').value=''; changeQuery(); $('search').focus(); }
   function openDetail(item) {
+    detailItem=item;
     state.screen='detail';
     show('detail',true);
     text('detailTitle',item.title||'Sin título');
     text('detailType',state.section==='series'?'SERIE':'PELÍCULA');
     text('detailCategory',item.category||'');
-    text('detailMessage','La biblioteca está disponible; la reproducción privada se habilitará cuando pase las pruebas de seguridad.');
-    var poster=$('detailPoster'); poster.textContent='';
+    text('detailMessage','');
+    show('detailPlay',state.section==='movies');
+    var starred=!!(family && family.isFavorite(state.section,item.id));
+    text('detailFavorite',starred?'★ Quitar de favoritos':'☆ Guardar en favoritos');
+    $('detailFavorite').setAttribute('aria-pressed',starred?'true':'false');
+    var poster=$('detailPoster');poster.textContent='';
     if (item.poster) {
-      var img=make('img'); img.alt='';img.src=item.poster;
+      var img=make('img');img.alt='';img.src=item.poster;
       poster.appendChild(img);
     }
     $('seasons').textContent='';
     if (state.section==='series') {
-      api('m3uDetail',{id:item.id},function(err,data) {
-        if (state.screen!=='detail') return;
-        if (err) { text('detailMessage',err); return; }
+      var selectedId=item.id;
+      api('m3uDetail',{id:selectedId},function(err,data) {
+        if (state.screen!=='detail' || !detailItem || detailItem.id!==selectedId) return;
+        if (err) {text('detailMessage',err);return;}
         var seasons=data.seasons||[];
         var host=$('seasons');
-        if (!seasons.length) { host.appendChild(make('p',null,'No se encontraron episodios.'));return; }
+        if (!seasons.length) {host.appendChild(make('p',null,'No se encontraron episodios.'));return;}
         for (var i=0;i<seasons.length;i++) {
           var season=seasons[i];
           host.appendChild(make('h3',null,'Temporada '+(season.number||i+1)));
           var eps=season.episodes||[];
           for (var j=0;j<eps.length;j++) {
-            var ep=eps[j], row=make('div','episode-button',
-              'Episodio '+(ep.number||j+1)+' · '+(ep.title||'Sin título'));
-            host.appendChild(row);
+            (function(ep,number,seriesTitle) {
+              var row=make('button','episode-button',
+                '▶ Episodio '+(ep.number||number)+' · '+(ep.title||'Sin título'));
+              row.type='button';
+              row.onclick=function() {
+                state.lastFocus=row;
+                playVod({id:ep.id,title:seriesTitle+' · '+(ep.title||'Episodio '+number)},'series');
+              };
+              host.appendChild(row);
+            })(eps[j],j+1,item.title||'Serie');
           }
         }
       });
     }
     $('detailBack').focus();
+  }
+  function playVod(item,kind) {
+    if (!item || !/^(mov-|ep-)/.test(String(item.id||''))) {
+      text('detailMessage','Este título todavía no tiene una referencia válida.');
+      return;
+    }
+    previousScreen=state.screen==='detail'?'detail':'catalog';
+    state.screen='player';
+    playerKind=kind;
+    playerItem={id:item.id,title:item.title||'Video',kind:kind};
+    state.currentChannel=null;
+    stopVideo();
+    text('playerTitle',playerItem.title);
+    text('playerMessage','Preparando video privado…');
+    show('player',true);
+    show('prevChannel',false);
+    show('nextChannel',false);
+    show('retryChannel',true);
+    resolveVodPlayback();
+    $('playerBack').focus();
+  }
+  function resolveVodPlayback() {
+    if (!playerItem || state.screen!=='player') return;
+    var target=playerItem.id;
+    api('resolve',{contentId:target},function(err,result) {
+      if (state.screen!=='player' || !playerItem || playerItem.id!==target) return;
+      if (err) {
+        text('playerMessage',err);
+        return;
+      }
+      rememberWatched(playerKind,playerItem);
+      text('playerMessage','');
+      attachMedia(result);
+    });
   }
   function closeDetail() {
     show('detail',false);
