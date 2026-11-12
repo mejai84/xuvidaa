@@ -463,7 +463,7 @@ class M3uProvider {
       seriesCategories: data.seriesCategories,
       liveChannels: (data.liveChannels || []).map(ch => ({
         id: ch.id, name: ch.name, category: ch.category,
-        logo: safeArtwork(ch.logo), streamPath: /^\\/live\\/[A-Za-z0-9._-]+$/.test(ch.streamPath || '') ? ch.streamPath : '',
+        logo: safeArtwork(ch.logo), streamPath: /^\/live\/[A-Za-z0-9._-]+$/.test(ch.streamPath || '') ? ch.streamPath : '',
         hasStream: !!ch.hasStream
       })),
       movies: sanitizeMovies,
@@ -815,7 +815,7 @@ class M3uProvider {
   }
 
   reconstructLiveUrl(relativePath) {
-    const match = /^\\/live\\/([A-Za-z0-9._-]{1,120})$/.exec(String(relativePath || ''));
+    const match = /^\/live\/([A-Za-z0-9._-]{1,120})$/.exec(String(relativePath || ''));
     if (!match || !this.isConfigured()) return '';
     try {
       const origin = new URL(this.baseUrl);
