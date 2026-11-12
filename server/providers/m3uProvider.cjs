@@ -810,7 +810,11 @@ class M3uProvider {
   }
 
   async getLiveChannels() {
-    const catalog = await this.refresh(false);
+    let catalog = await this.refresh(false);
+    // Existing caches were generated before live channel metadata was retained.
+    if (!Array.isArray(catalog.liveChannels) && this.isConfigured()) {
+      catalog = await this.refresh(true);
+    }
     return catalog.liveChannels || [];
   }
 
