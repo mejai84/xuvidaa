@@ -32,6 +32,6 @@ test('HEVC is rejected by policy',async()=>{
   assert.equal(plan.supported,false);
 });
 test('rejects invalid source and unbounded probe configuration',async()=>{
-  assert.throws(()=>probeMkv({source:null}),/Origen/);
+  await assert.rejects(probeMkv({source:null}),/Origen/);
   await assert.rejects(probeMkv({source:Readable.from([]),maxBytes:10}),/Límite/);
 });
