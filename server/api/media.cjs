@@ -12,6 +12,15 @@ const registry = require('./media-registry.cjs');
 const MANIFEST_LIMIT = 2 * 1024 * 1024;
 const RANGE = /^bytes=(?:\d+-\d*|-\d+)$/;
 
+// Deliberately log only fixed labels, numeric status and elapsed time.
+// Never log signed media URLs, tokens, headers, upstream hosts or credentials.
+function mediaFailure(kind, reason, upstreamStatus, started) {
+  const status = Number.isInteger(upstreamStatus) ? upstreamStatus : 0;
+  const elapsedMs = Math.max(0, Date.now() - started);
+  console.warn('[TVVIDAA media] kind=%s reason=%s upstream_status=%d elapsed_ms=%d',
+    kind, reason, status, elapsedMs);
+}
+
 function error(res, code, message) {
   if (res.headersSent) { res.destroy(); return; }
   res.setHeader('Cache-Control', 'private, no-store');
@@ -120,6 +129,13 @@ function createHandler(deps) {
     if (req.headers.range) headers.Range=String(req.headers.range);
     if (req.headers['if-range']) headers['If-Range']=String(req.headers['if-range']).slice(0,150);
     headers.Connection='close';
+    // Request uncompressed HLS text: the relay rewrites manifests, but does not
+    // implement Content-Encoding decompression for upstream responses.
+    headers['Accept-Encoding']='identity';
+
+    const started = Date.now();
+    const kind = isHls ? 'manifest' : 'segment';
+    const failLog = (reason, status) => mediaFailure(kind, reason, status, started);
 
     function requestUpstream(address) {
       const isHttp = url.protocol === 'http:';
@@ -139,12 +155,14 @@ function createHandler(deps) {
       const upstream=makeRequest(options,(remote)=>{
         const status=remote.statusCode||502;
         if ([301,302,303,307,308].includes(status)) {
+          failLog('upstream_redirect',status);
           remote.resume();return error(res,502,'El proveedor redirigió la señal');
         }
         // Do not pass provider error pages to the video demuxer as media bytes.
         // A 2xx response alone is not proof that a segment is decodable.
         if (status < 200 || status >= 300) {
           if (status !== 416) {
+            failLog('upstream_http_error',status);
             remote.resume();
             return error(res,502,'El proveedor no entregó un segmento multimedia válido');
           }
@@ -166,18 +184,19 @@ function createHandler(deps) {
             remote.resume();return error(res,502,'Manifiesto no disponible');
           }
           const chunks=[];let size=0,failed=false;
-          function fail(message) {
+          function fail(message, reason) {
             if(failed)return;failed=true;
+            failLog(reason, status);
             upstream.destroy();
             error(res,502,message);
           }
           remote.on('data',(chunk)=>{
             size+=chunk.length;
-            if(size>MANIFEST_LIMIT)return fail('Manifiesto demasiado grande');
+            if(size>MANIFEST_LIMIT)return fail('Manifiesto demasiado grande','manifest_too_large');
             chunks.push(chunk);
           });
-          remote.on('error',()=>fail('Fallo leyendo manifiesto'));
-          remote.on('aborted',()=>fail('Proveedor interrumpió manifiesto'));
+          remote.on('error',()=>fail('Fallo leyendo manifiesto','manifest_read_error'));
+          remote.on('aborted',()=>fail('Proveedor interrumpió manifiesto','manifest_aborted'));
           remote.on('end',()=>{
             if(failed)return;
             try {
@@ -193,7 +212,10 @@ function createHandler(deps) {
               delete out['Content-Length'];delete out['Content-Range'];delete out['Accept-Ranges'];
               out['Content-Type']='application/vnd.apple.mpegurl';
               res.writeHead(200,out);res.end(playlist);
-            } catch (_) {error(res,502,'El manifiesto contiene recursos no permitidos');}
+            } catch (_) {
+              failLog('manifest_invalid_or_rewrite_rejected',status);
+              error(res,502,'El manifiesto contiene recursos no permitidos');
+            }
           });
           return;
         }
@@ -204,15 +226,27 @@ function createHandler(deps) {
         remote.on('aborted',()=>res.destroy());
         remote.pipe(res);
       });
-      upstream.on('timeout',()=>upstream.destroy(new Error('Timeout upstream')));
-      upstream.on('error',()=>error(res,502,'No se pudo conectar con el video'));
+      upstream.on('timeout',()=>{
+        failLog('upstream_timeout',0);
+        upstream.destroy(new Error('Timeout upstream'));
+      });
+      upstream.on('error',()=>{
+        failLog('upstream_request_error',0);
+        error(res,502,'No se pudo conectar con el video');
+      });
       res.on('close',()=>{if(!res.writableEnded)upstream.destroy();});
       upstream.end();
     }
     resolveDns(url.hostname,{all:true,verbatim:true},(err,addresses)=>{
-      if(err || !Array.isArray(addresses) || !addresses.length) return error(res,502,'No se pudo resolver el origen multimedia');
+      if(err || !Array.isArray(addresses) || !addresses.length) {
+        failLog('dns_resolution_failed',0);
+        return error(res,502,'No se pudo resolver el origen multimedia');
+      }
       const v4=addresses.filter(x=>x.family===4);
-      if(!v4.length)return error(res,502,'Origen sin IPv4 compatible');
+      if(!v4.length){
+        failLog('dns_no_ipv4',0);
+        return error(res,502,'Origen sin IPv4 compatible');
+      }
       if(v4.some(x=>!publicIPv4(x.address)))return error(res,403,'Origen de red restringido');
       requestUpstream(v4[0].address);
     });
