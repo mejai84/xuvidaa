@@ -18,6 +18,7 @@ const PUBLIC_FILES = new Map([
   ['js/access.js', 'text/javascript; charset=utf-8'],
   ['js/search-scope.js', 'text/javascript; charset=utf-8'],
   ['js/app.js', 'text/javascript; charset=utf-8'],
+  ['css/app.css', 'text/css; charset=utf-8'],
   ['js/webOSTV.js', 'text/javascript; charset=utf-8'],
   ['css/access.css', 'text/css; charset=utf-8'],
   ['css/style.css', 'text/css; charset=utf-8']
@@ -269,16 +270,16 @@ function main() {
   // Passwordless mode is explicit opt-in: this app is reachable through public HTTPS.
   // In this mode /api/session reports authenticated, and catalog/media APIs
   // are accessible to anyone with the public URL (upstream secrets remain server-side).
-  const passwordless = process.env.XUPER_PASSWORDLESS === 'true';
-  if (passwordless && process.env.XUPER_PUBLIC_ACCESS_ACK !== 'yes') {
-    throw new Error('El acceso sin contraseña requiere XUPER_PUBLIC_ACCESS_ACK=yes: permite acceso público a catálogos y reproducción.');
+  const passwordless = (process.env.VIDAA_PASSWORDLESS || process.env.XUPER_PASSWORDLESS) === 'true';
+  if (passwordless && (process.env.VIDAA_PUBLIC_ACCESS_ACK || process.env.XUPER_PUBLIC_ACCESS_ACK) !== 'yes') {
+    throw new Error('El acceso sin contraseña requiere VIDAA_PUBLIC_ACCESS_ACK=yes: permite acceso público a catálogos y reproducción.');
   }
-  const accessPassword = passwordless ? '' : (process.env.XUPER_WEB_PASSWORD || '');
-  const sessionSecret = passwordless ? '' : (process.env.XUPER_SESSION_SECRET || '');
-  if (!passwordless && Buffer.byteLength(accessPassword) < 14) throw new Error('Configura XUPER_WEB_PASSWORD con al menos 14 caracteres.');
-  if (!passwordless && Buffer.byteLength(sessionSecret) < 32) throw new Error('Configura XUPER_SESSION_SECRET con al menos 32 bytes aleatorios.');
+  const accessPassword = passwordless ? '' : (process.env.VIDAA_WEB_PASSWORD || process.env.XUPER_WEB_PASSWORD || '');
+  const sessionSecret = passwordless ? '' : (process.env.VIDAA_SESSION_SECRET || process.env.XUPER_SESSION_SECRET || '');
+  if (!passwordless && Buffer.byteLength(accessPassword) < 14) throw new Error('Configura VIDAA_WEB_PASSWORD con al menos 14 caracteres.');
+  if (!passwordless && Buffer.byteLength(sessionSecret) < 32) throw new Error('Configura VIDAA_SESSION_SECRET con al menos 32 bytes aleatorios.');
   if (process.env.XUPER_BACKEND_URL) throw new Error('XUPER_BACKEND_URL no se utiliza; la interfaz y la API se alojan juntas en este VPS.');
-  const secret = process.env.MEDIA_TOKEN_SECRET || process.env.XUPER_MEDIA_SECRET || '';
+  const secret = process.env.MEDIA_TOKEN_SECRET || '';
   if (secret.length < 32) throw new Error('Configura MEDIA_TOKEN_SECRET con al menos 32 caracteres aleatorios.');
   const publicOrigin = process.env.PUBLIC_BASE_URL || process.env.PUBLIC_ORIGIN || '';
   const bind = process.env.BIND_HOST || '127.0.0.1';
@@ -287,17 +288,17 @@ function main() {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('PORT debe estar entre 1024 y 65535.');
   const server = createServer({
     publicOrigin,
-    root: path.join(__dirname, '../webos/fidelity'),
+    root: path.join(__dirname, '../web'),
     accessPassword,
     sessionSecret,
-    apiHandler: require('../webos/fidelity/api/[method].js'),
-    mediaHandler: require('../webos/fidelity/api/media.js')
+    apiHandler: require('./api/vidaa-api.cjs'),
+    mediaHandler: require('./api/media.cjs')
   });
   server.on('error', (error) => {
-    console.error(error.code === 'EADDRINUSE' ? 'El puerto ya está ocupado. Elige otro PORT para Xuper.' : 'No se pudo iniciar Xuper.');
+    console.error(error.code === 'EADDRINUSE' ? 'El puerto ya está ocupado. Elige otro PORT para TVVIDAA.' : 'No se pudo iniciar TVVIDAA.');
     process.exitCode = 1;
   });
-  server.listen(port, bind, () => console.log('Xuper HTTP listo, puerto interno ' + port));
+  server.listen(port, bind, () => console.log('TVVIDAA HTTP listo, puerto interno ' + port));
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
     server.close();
     setTimeout(() => server.closeAllConnections(), 10000).unref();

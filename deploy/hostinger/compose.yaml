@@ -1,7 +1,7 @@
-# Deploy this as its own Docker Compose application in Dokploy.
+# TVVIDAA: standalone HTML5 web app + Node API. No LG/webOS dependencies.
 name: xuvidaa-tv
 services:
-  xuper:
+  vidaa:
     build:
       context: ../..
       dockerfile: deploy/hostinger/Dockerfile
@@ -23,12 +23,15 @@ services:
       PORT: 3000
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in Dokploy}
       MEDIA_TOKEN_SECRET: ${MEDIA_TOKEN_SECRET:?Set MEDIA_TOKEN_SECRET in Dokploy}
-      # Passwordless mode is opt-in; otherwise the existing web password stays active.
+      VIDAA_WEB_PASSWORD: ${VIDAA_WEB_PASSWORD:-}
+      VIDAA_SESSION_SECRET: ${VIDAA_SESSION_SECRET:-}
+      VIDAA_PASSWORDLESS: ${VIDAA_PASSWORDLESS:-false}
+      VIDAA_PUBLIC_ACCESS_ACK: ${VIDAA_PUBLIC_ACCESS_ACK:-no}
+      # Temporary aliases for existing Dokploy secrets; remove after migrating.
       XUPER_WEB_PASSWORD: ${XUPER_WEB_PASSWORD:-}
       XUPER_SESSION_SECRET: ${XUPER_SESSION_SECRET:-}
       XUPER_PASSWORDLESS: ${XUPER_PASSWORDLESS:-false}
       XUPER_PUBLIC_ACCESS_ACK: ${XUPER_PUBLIC_ACCESS_ACK:-no}
-      MEDIA_ALLOWED_HOSTS: ${MEDIA_ALLOWED_HOSTS:-}
       IPTV_COUNTRY: ${IPTV_COUNTRY:-CO}
       IPTV_LANG: ${IPTV_LANG:-spa}
       IPTV_EXCLUDE_NSFW: ${IPTV_EXCLUDE_NSFW:-true}
@@ -36,7 +39,6 @@ services:
       M3U_USERNAME: ${M3U_USERNAME:-}
       M3U_PASSWORD: ${M3U_PASSWORD:-}
       M3U_TYPE: ${M3U_TYPE:-m3u}
-      LEGACY_MAGIS_ENABLED: ${LEGACY_MAGIS_ENABLED:-false}
     volumes:
       - xuvidaa-catalog-cache:/app/server/.cache
     restart: unless-stopped

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1">
+  <meta name="theme-color" content="#080d18">
+  <title>TVVIDAA | Televisión, películas y series</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <section id="auth" class="auth-screen" aria-labelledby="authTitle">
+    <form id="loginForm" class="auth-card">
+      <div class="brand"><span>TV</span>VIDAA</div>
+      <h1 id="authTitle">Accede a TVVIDAA</h1>
+      <p>Tu entretenimiento en un solo lugar.</p>
+      <label for="password">Contraseña de acceso</label>
+      <input id="password" type="password" autocomplete="current-password" maxlength="256" required>
+      <button type="submit" class="primary">Ingresar</button>
+      <p id="loginError" class="error" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="shell" hidden>
+    <header class="topbar">
+      <div class="brand"><span>TV</span>VIDAA</div>
+      <div class="top-actions">
+        <span id="connection" class="connection">Conectado</span>
+        <button id="searchShortcut" type="button" class="icon-button" aria-label="Ir a búsqueda">⌕ Buscar</button>
+        <button id="logout" type="button" class="icon-button" aria-label="Cerrar sesión">Salir</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="sidebar" aria-label="Secciones">
+        <button type="button" data-section="tv" class="nav-button selected"><span aria-hidden="true">▣</span> TV en vivo</button>
+        <button type="button" data-section="movies" class="nav-button"><span aria-hidden="true">▶</span> Películas</button>
+        <button type="button" data-section="series" class="nav-button"><span aria-hidden="true">▤</span> Series</button>
+      </nav>
+      <main class="content" id="content" tabindex="-1">
+        <div class="page-heading">
+          <div>
+            <div id="eyebrow" class="eyebrow">TELEVISIÓN</div>
+            <h1 id="heading">TV en vivo</h1>
+            <p id="description">Selecciona un canal para comenzar.</p>
+          </div>
+          <span id="count" class="counter"></span>
+        </div>
+        <div class="filters">
+          <label class="searchbox" for="search">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" type="search" autocomplete="off" maxlength="100" placeholder="Buscar canales..." aria-label="Buscar en la sección actual">
+          </label>
+          <button id="clearSearch" type="button" class="secondary" aria-label="Borrar búsqueda">Borrar</button>
+          <select id="category" aria-label="Categoría">
+            <option value="all">Todos los canales</option>
+          </select>
+        </div>
+        <p id="notice" class="notice" role="status"></p>
+        <div id="results" class="catalog" aria-live="polite"></div>
+        <div class="pagination">
+          <button id="more" type="button" class="secondary" hidden>Cargar más</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <section id="detail" class="overlay" hidden aria-label="Información del contenido">
+    <div class="detail-panel">
+      <button id="detailBack" type="button" class="secondary back-button">‹ Volver</button>
+      <div class="detail-inner">
+        <div id="detailPoster" class="detail-poster"></div>
+        <div class="detail-info">
+          <span id="detailType" class="eyebrow"></span>
+          <h2 id="detailTitle"></h2>
+          <p id="detailCategory"></p>
+          <p id="detailMessage" class="notice"></p>
+          <div id="seasons" class="season-list"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="player" class="player-screen" hidden aria-label="Reproductor de televisión">
+    <div class="player-top">
+      <button id="playerBack" type="button" class="secondary">‹ Volver</button>
+      <strong id="playerTitle">TV en vivo</strong>
+    </div>
+    <video id="video" controls playsinline preload="none"></video>
+    <div id="playerMessage" class="player-message" role="status"></div>
+  </section>
+
+  <!-- HLS.js is loaded only when a device lacks native HLS support. -->
+  <script src="/js/app.js" defer></script>
+</body>
+</html>
