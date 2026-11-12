@@ -192,6 +192,7 @@ test('Series: series con nombres similares NO se fusionan erróneamente', () => 
 // -------------------------------------------------------------
 test('Seguridad: credenciales no aparecen en respuesta de la API', async () => {
   const provider = new M3uProvider({
+    cacheDir: false,
     baseUrl: 'http://private.example:8080',
     username: 'supersecretuser',
     password: 'supersecretpassword',

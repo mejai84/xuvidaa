@@ -56,13 +56,19 @@ function normalizeText(text) {
 function defaultFetchJson(url, timeoutMs) {
   return new Promise((resolve, reject) => {
     const timeout = timeoutMs || 25000;
-    const req = https.get(url, { headers: { 'User-Agent': 'xuvidaa/1.0' } }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'TVVIDAA/1.0', 'Accept-Encoding': 'identity' } }, (res) => {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         res.resume();
         return reject(new Error(`HTTP ${res.statusCode} al descargar ${url}`));
       }
       const chunks = [];
-      res.on('data', (c) => chunks.push(c));
+      let received = 0;
+      res.on('data', (c) => {
+        received += c.length;
+        if (received > 64 * 1024 * 1024) { req.destroy(new Error('Catálogo IPTV-org demasiado grande.')); return; }
+        chunks.push(c);
+      });
+      res.on('error', () => reject(new Error('Descarga IPTV-org interrumpida.')));
       res.on('end', () => {
         try {
           const body = Buffer.concat(chunks).toString('utf8');
@@ -146,13 +152,15 @@ function sortStreams(streams) {
 class IptvOrgProvider {
   constructor(options) {
     const opts = options || {};
-    this.country = opts.country || 'CO';
+    this.country = String(opts.country || 'CO').toUpperCase();
+    if (!/^[A-Z]{2}$/.test(this.country)) throw new Error('IPTV_COUNTRY debe tener dos letras.');
     this.languagePriority = opts.languagePriority || 'spa';
     this.excludeNsfw = opts.excludeNsfw !== false;
     this.preferHls = opts.preferHls !== false;
     this.endpoints = Object.assign({}, DEFAULT_ENDPOINTS, opts.endpoints || {});
-    this.cacheDir = opts.cacheDir || path.join(__dirname, '..', '.cache');
-    this.cacheFile = path.join(this.cacheDir, `iptv-org-${this.country.toLowerCase()}.json`);
+    const cacheDir = opts.cacheDir === undefined && typeof opts.fetchJson === 'function' ? false : opts.cacheDir;
+    this.cacheDir = cacheDir === false ? false : (cacheDir || path.join(__dirname, '..', '.cache'));
+    this.cacheFile = this.cacheDir ? path.join(this.cacheDir, `iptv-org-${this.country.toLowerCase()}.json`) : null;
     this.ttlMs = Number.isFinite(opts.ttlMs) ? opts.ttlMs : 24 * 60 * 60 * 1000; // 24 hours
     this.fetchJson = typeof opts.fetchJson === 'function' ? opts.fetchJson : defaultFetchJson;
 
@@ -160,9 +168,12 @@ class IptvOrgProvider {
     this.inMemoryData = null;
     this.fetchedAt = 0;
     this.refreshPromise = null;
+    this.retryAfter = 0;
+    this.lastError = null;
   }
 
   async readDiskCache() {
+    if (!this.cacheFile) return null;
     try {
       const content = await fs.promises.readFile(this.cacheFile, 'utf8');
       const parsed = JSON.parse(content);
@@ -176,11 +187,12 @@ class IptvOrgProvider {
   }
 
   async writeDiskCache(data) {
+    if (!this.cacheFile) return;
     try {
       await fs.promises.mkdir(this.cacheDir, { recursive: true });
       const tempPath = this.cacheFile + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
       const content = JSON.stringify(data, null, 2);
-      await fs.promises.writeFile(tempPath, content, 'utf8');
+      await fs.promises.writeFile(tempPath, content, { encoding: 'utf8', mode: 0o600 });
       await fs.promises.rename(tempPath, this.cacheFile);
     } catch (err) {
       // Do not crash if disk cache cannot be saved (e.g. read-only filesystem)
@@ -340,11 +352,15 @@ class IptvOrgProvider {
   }
 
   async refresh(force) {
-    if (this.refreshPromise && !force) {
+    if (this.refreshPromise) {
       return this.refreshPromise;
     }
 
     this.refreshPromise = (async () => {
+      if (!force && this.retryAfter > Date.now()) {
+        if (this.inMemoryData) return this.inMemoryData;
+        if (this.lastError) throw this.lastError;
+      }
       // 1. If not forced and memory cache is fresh, return memory cache
       if (!force && this.inMemoryData && (Date.now() - this.fetchedAt < this.ttlMs)) {
         return this.inMemoryData;
@@ -381,49 +397,51 @@ class IptvOrgProvider {
         }
 
         const processed = this.processRawCatalog(channels, streams, logos, categories, countries);
+        if (!processed.stats.totalWithStreams) throw new Error('No se recibieron canales con señal.');
 
         // Update in-memory state and atomic disk cache
         this.inMemoryData = processed;
         this.fetchedAt = processed.fetchedAt;
+        this.retryAfter = 0;
+        this.lastError = null;
         await this.writeDiskCache(processed);
 
         return processed;
       } catch (err) {
         console.error('[IptvOrgProvider] Error actualizando desde IPTV-org:', err.message);
+        this.retryAfter = Date.now() + 60000;
+        this.lastError = new Error(/timeout/i.test(String(err.message)) ? 'Timeout al consultar IPTV-org.' : 'IPTV-org no está disponible.');
 
         // Fallback: If we have prior valid cache (in memory or on disk), preserve it!
         if (this.inMemoryData) {
-          return Object.assign({}, this.inMemoryData, {
+          this.inMemoryData = Object.assign({}, this.inMemoryData, {
             stale: true,
             warning: 'Usando catálogo previo en memoria por fallo de conexión: ' + err.message
           });
+          return this.inMemoryData;
         }
 
         const diskCache = await this.readDiskCache();
         if (diskCache) {
-          this.inMemoryData = diskCache;
+          this.inMemoryData = Object.assign({}, diskCache, { stale: true, warning: 'Se muestra el catálogo IPTV-org guardado.' });
           this.fetchedAt = diskCache.fetchedAt || Date.now();
-          return Object.assign({}, diskCache, {
-            stale: true,
-            warning: 'Usando catálogo previo en disco por fallo de conexión: ' + err.message
-          });
+          return this.inMemoryData;
         }
 
         // Only if absolutely no prior cache exists, throw
-        throw new Error('No se pudo obtener el catálogo de IPTV-org y no hay caché previa: ' + err.message);
-      } finally {
-        this.refreshPromise = null;
+        throw this.lastError;
       }
     })();
 
-    return this.refreshPromise;
+    const pending = this.refreshPromise;
+    return pending.finally(() => { if (this.refreshPromise === pending) this.refreshPromise = null; });
   }
 
   async getCategories() {
     const data = await this.refresh(false);
     return {
       returnValue: true,
-      categories: data.categories || []
+      categories: data.categories || [], stale: !!data.stale, warning: data.warning || ''
     };
   }
 

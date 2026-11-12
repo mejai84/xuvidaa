@@ -23,7 +23,7 @@ const vod = new M3uProvider({
 });
 const allowed = new Set([
   'ping','liveCategories','liveChannels','resolveLive',
-  'm3uMovies','m3uSeries','m3uDetail','m3uStatus','resolve'
+  'm3uMovies','m3uSeries','m3uDetail','m3uStatus','resolve','home','prewarm'
 ]);
 const requests = new Map();
 
@@ -100,11 +100,17 @@ function protectRate(req, method) {
   return rate.n <= (method === 'resolveLive' ? 45 : 120);
 }
 async function handler(req, res) {
-  const method = String(req.query.method || '');
+  let method = String(req.query.method || '');
   if (!allowed.has(method)) return respond(res,404,{errorText:'Método no disponible'});
   if (req.method !== 'POST') return respond(res,405,{errorText:'Utiliza POST'});
   if (!protectRate(req,method)) return respond(res,429,{errorText:'Demasiadas solicitudes'});
   const input = normalizeInput(req);
+  if (method === 'prewarm') return respond(res,200,{ready:true,providers:{live:'iptv-org',vod:'m3u'}});
+  if (method === 'home') {
+    const root = String(input.root || 'movies');
+    if (root !== 'movies' && root !== 'series') return respond(res,400,{errorText:'Sección inválida'});
+    method = root === 'movies' ? 'm3uMovies' : 'm3uSeries';
+  }
   const search = String(input.search || '').trim();
   const pageNum = Math.min(10000,Math.max(1,parseInt(input.pageNum,10)||1));
   const pageSize = Math.min(60,Math.max(1,parseInt(input.pageSize,10)||30));
@@ -113,7 +119,7 @@ async function handler(req, res) {
     if (method === 'ping') return respond(res,200,{service:'TVVIDAA-web',ready:true});
     if (method === 'liveCategories') {
       const r = await live.getCategories();
-      return respond(res,200,{categories:(r.categories||[]).map(c=>({
+      return respond(res,200,{stale:!!r.stale,warning:r.stale?'Se muestra el catálogo IPTV-org guardado.':'',categories:(r.categories||[]).map(c=>({
         id:String(c.id || ''),name:String(c.name || c.id || '')
       }))});
     }
@@ -123,14 +129,15 @@ async function handler(req, res) {
         pageNum,pageSize,search,onlyWithStreams:true
       });
       return respond(res,200,{channels:(result.channels||[]).map(safeChannel),
-        pageNum,total:result.total||0,hasMore:!!result.hasMore});
+        pageNum,total:result.total||0,hasMore:!!result.hasMore,
+        stale:!!result.stale,warning:result.stale?'Se muestra el catálogo IPTV-org guardado.':''});
     }
     if (method === 'm3uMovies' || method === 'm3uSeries') {
       const args = {pageNum,pageSize,search,category:String(input.category||'all')};
       const r = method === 'm3uMovies' ? await vod.getMovies(args) : await vod.getSeries(args);
       return respond(res,200,{items:(r.items||[]).map(method === 'm3uMovies'?safeMovie:safeSeries),
         pageNum,total:r.total||0,hasMore:!!r.hasMore,
-        configured:vod.isConfigured()});
+        configured:vod.isConfigured(),stale:!!r.stale,warning:r.warning||''});
     }
     if (method === 'm3uDetail') {
       const id=String(input.id||input.contentId||'').trim();
@@ -219,6 +226,14 @@ async function handler(req, res) {
       });
     }
   } catch (_) {
+    if (['liveCategories','liveChannels','m3uMovies','m3uSeries'].includes(method)) {
+      const isLive = method === 'liveCategories' || method === 'liveChannels';
+      const warning = isLive ? 'IPTV-org no está disponible. Vuelve a intentarlo más tarde.' :
+        (vod.isConfigured() ? 'El proveedor M3U no está disponible. Vuelve a intentarlo más tarde.' : 'Configura las variables privadas M3U del servidor para cargar películas y series.');
+      return respond(res,200,{categories:[],channels:[],items:[],total:0,hasMore:false,pageNum,
+        configured:isLive||vod.isConfigured(),unavailable:true,warning,
+        errorCode:isLive?'IPTV_UNAVAILABLE':(vod.isConfigured()?'M3U_UNAVAILABLE':'M3U_NOT_CONFIGURED')});
+    }
     return respond(res,503,{errorText:'La fuente de contenido no está disponible. Intenta nuevamente.'});
   }
   return respond(res,404,{errorText:'Método no disponible'});

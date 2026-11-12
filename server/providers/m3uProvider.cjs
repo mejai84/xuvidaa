@@ -105,9 +105,10 @@ class M3uProvider {
     this.username = opts.username || process.env.M3U_USERNAME || '';
     this.password = opts.password || process.env.M3U_PASSWORD || '';
     this.type = opts.type || process.env.M3U_TYPE || 'm3u';
-    this.cacheDir = opts.cacheDir || path.join(__dirname, '..', '.cache');
-    this.cacheFile = path.join(this.cacheDir, 'm3u-catalog.json');
-    this.ttlMs = Number.isFinite(opts.ttlMs) ? opts.ttlMs : 24 * 60 * 60 * 1000;
+    const cacheDir = opts.cacheDir === undefined && typeof opts.fetchM3uContent === 'function' ? false : opts.cacheDir;
+    this.cacheDir = cacheDir === false ? false : (cacheDir || path.join(__dirname, '..', '.cache'));
+    this.cacheFile = this.cacheDir ? path.join(this.cacheDir, 'm3u-catalog.json') : null;
+    this.ttlMs = Number.isFinite(opts.cacheTtlMs) ? opts.cacheTtlMs : (Number.isFinite(opts.ttlMs) ? opts.ttlMs : 24 * 60 * 60 * 1000);
     this.fetchM3uContent = typeof opts.fetchM3uContent === 'function' ? opts.fetchM3uContent : null;
 
     // In-memory catalog
@@ -115,6 +116,8 @@ class M3uProvider {
     this.streamIndex = null;
     this.fetchedAt = 0;
     this.refreshPromise = null;
+    this.retryAfter = 0;
+    this.lastError = null;
   }
 
   isConfigured() {
@@ -441,6 +444,7 @@ class M3uProvider {
   }
 
   async readDiskCache() {
+    if (!this.cacheFile) return null;
     try {
       const content = await fs.promises.readFile(this.cacheFile, 'utf8');
       const parsed = JSON.parse(content);
@@ -454,14 +458,28 @@ class M3uProvider {
   }
 
   async writeDiskCache(data) {
+    if (!this.cacheFile) return;
+    const suffix = '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
+    const tempPath = this.cacheFile + suffix;
+    const backupTemp = this.cacheFile + '.previous' + suffix;
     try {
       await fs.promises.mkdir(this.cacheDir, { recursive: true });
-      const tempPath = this.cacheFile + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
       const cleanData = this.sanitizeDataForDisk(data);
-      await fs.promises.writeFile(tempPath, JSON.stringify(cleanData, null, 2), 'utf8');
+      await fs.promises.writeFile(tempPath, JSON.stringify(cleanData, null, 2), { encoding: 'utf8', mode: 0o600 });
+      let previous;
+      try { previous = await fs.promises.lstat(this.cacheFile); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (previous) {
+        if (!previous.isFile() || previous.isSymbolicLink()) throw new Error('El caché anterior no es un archivo regular.');
+        await fs.promises.copyFile(this.cacheFile, backupTemp, fs.constants.COPYFILE_EXCL);
+        await fs.promises.chmod(backupTemp, 0o600);
+        await fs.promises.rename(backupTemp, this.cacheFile + '.previous');
+      }
       await fs.promises.rename(tempPath, this.cacheFile);
     } catch (err) {
       console.warn('[M3uProvider] Advertencia: no se pudo escribir caché M3U en disco:', err.message);
+    } finally {
+      await Promise.all([tempPath, backupTemp].map(filename => fs.promises.unlink(filename).catch(() => {})));
     }
   }
 
@@ -471,15 +489,23 @@ class M3uProvider {
     }
 
     this.refreshPromise = (async () => {
+      if (!force && this.retryAfter > Date.now()) {
+        if (this.inMemoryCatalog) return this.inMemoryCatalog;
+        if (this.lastError) throw this.lastError;
+      }
       // 1. Return in-memory catalog if fresh
-      if (!force && this.inMemoryCatalog && (Date.now() - this.fetchedAt < this.ttlMs)) {
+      if (!force && this.inMemoryCatalog && (!this.isConfigured() || Date.now() - this.fetchedAt < this.ttlMs)) {
         return this.inMemoryCatalog;
       }
 
       // 2. Return disk cache if memory empty
       if (!this.inMemoryCatalog && !force) {
         const disk = await this.readDiskCache();
-        if (disk && (Date.now() - (disk.fetchedAt || 0) < this.ttlMs)) {
+        if (disk && (!this.isConfigured() || Date.now() - (disk.fetchedAt || 0) < this.ttlMs)) {
+          if (!this.isConfigured()) {
+            disk.stale = true;
+            disk.warning = 'Configura el proveedor M3U para actualizar y reproducir el catálogo guardado.';
+          }
           this.inMemoryCatalog = disk;
           this.streamIndex = null;
           this.fetchedAt = disk.fetchedAt || Date.now();
@@ -491,42 +517,46 @@ class M3uProvider {
       try {
         const rawM3u = await this.fetchRemoteM3u();
         const parsed = this.parseM3u(rawM3u);
+        if (!(parsed.movies.length || parsed.series.length)) throw new Error('La lista no contiene títulos válidos.');
 
         this.inMemoryCatalog = parsed;
         this.streamIndex = this.buildStreamIndex(parsed);
         this.fetchedAt = parsed.fetchedAt;
+        this.retryAfter = 0;
+        this.lastError = null;
         await this.writeDiskCache(parsed);
 
         return parsed;
       } catch (err) {
         console.error('[M3uProvider] Error actualizando M3U (detalles de origen omitidos).');
+        this.retryAfter = Date.now() + 60000;
+        this.lastError = new Error('No se pudo obtener el catálogo M3U y no hay caché previa');
 
         // Fallback: preserve memory cache
         if (this.inMemoryCatalog) {
-          return Object.assign({}, this.inMemoryCatalog, {
+          this.inMemoryCatalog = Object.assign({}, this.inMemoryCatalog, {
             stale: true,
             warning: 'Usando catálogo M3U previo en memoria; proveedor temporalmente no disponible'
           });
+          return this.inMemoryCatalog;
         }
 
         // Fallback: preserve disk cache
         const disk = await this.readDiskCache();
         if (disk) {
-          this.inMemoryCatalog = disk;
-          this.fetchedAt = disk.fetchedAt || Date.now();
-          return Object.assign({}, disk, {
-            stale: true,
-            warning: 'Usando catálogo M3U previo en disco; proveedor temporalmente no disponible'
+          this.inMemoryCatalog = Object.assign({}, disk, {
+            stale: true, warning: 'Usando catálogo M3U previo en disco; proveedor temporalmente no disponible'
           });
+          this.fetchedAt = disk.fetchedAt || Date.now();
+          return this.inMemoryCatalog;
         }
 
-        throw new Error('No se pudo obtener el catálogo M3U y no hay caché previa');
-      } finally {
-        this.refreshPromise = null;
+        throw this.lastError;
       }
     })();
 
-    return this.refreshPromise;
+    const pending = this.refreshPromise;
+    return pending.finally(() => { if (this.refreshPromise === pending) this.refreshPromise = null; });
   }
 
   async getMovies(params) {
@@ -565,7 +595,7 @@ class M3uProvider {
       pageNum,
       pageSize,
       hasMore: startIndex + pageSize < total,
-      categories: data.movieCategories || []
+      categories: data.movieCategories || [], stale: !!data.stale, warning: data.warning || ''
     };
   }
 
@@ -621,7 +651,7 @@ class M3uProvider {
       pageNum,
       pageSize,
       hasMore: startIndex + pageSize < total,
-      categories: data.seriesCategories || []
+      categories: data.seriesCategories || [], stale: !!data.stale, warning: data.warning || ''
     };
   }
 

@@ -94,7 +94,8 @@
   }
   function login(event) {
     if (event && event.preventDefault) event.preventDefault();
-    var button = $('loginForm').querySelector('button');
+    var button = $('loginForm').querySelector('button[type="submit"]');
+    if (button.disabled) return;
     button.disabled = true;
     text('loginError', 'Verificando…');
     api('login', {password: $('password').value}, function (err, payload) {
@@ -619,17 +620,22 @@
     ++state.diagnosticSeq;
     show('diagnostics',false);
     state.screen=previousScreen==='detail'?'detail':'catalog';
-    $('diagnosticsButton').focus();
+    $(state.screen==='detail'?'detailBack':'diagnosticsButton').focus();
+  }
+  function focusScopeControls() {
+    var root=$({login:'auth',catalog:'shell',detail:'detail',player:'player',diagnostics:'diagnostics'}[state.screen]);
+    var list=root ? root.querySelectorAll('button:not([disabled]), input:not([disabled]),select:not([disabled])') : [];
+    var items=[];
+    for(var i=0;i<list.length;i++) {
+      if(list[i].offsetWidth && list[i].offsetHeight)items.push(list[i]);
+    }
+    return items;
   }
   function navigate(dir) {
     var current=document.activeElement;
-    var list=document.querySelectorAll('button:not([disabled]), input:not([disabled]),select:not([disabled])');
-    var items=[];
-    for (var i=0;i<list.length;i++) {
-      if (list[i].offsetWidth && list[i].offsetHeight) items.push(list[i]);
-    }
-    if (!items.length) return;
-    if (!current || items.indexOf(current)<0) { items[0].focus();return; }
+    var items=focusScopeControls();
+    if (!items.length) return false;
+    if (!current || items.indexOf(current)<0) { items[0].focus();return true; }
     var rect=current.getBoundingClientRect(), best=null, score=Infinity;
     var cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
     for (var j=0;j<items.length;j++) {
@@ -643,7 +649,8 @@
       var measure=primary+secondary*2.1;
       if(measure<score){score=measure;best=node;}
     }
-    if(best){best.focus();if(best.scrollIntoView)best.scrollIntoView({block:'nearest',inline:'nearest'});}
+    if(best){best.focus();if(best.scrollIntoView)best.scrollIntoView({block:'nearest',inline:'nearest'});return true;}
+    return false;
   }
   function handleRemote(e) {
     var key=e.keyCode||e.which;
@@ -655,7 +662,10 @@
       if(state.screen==='player') closePlayer();
       else if(state.screen==='diagnostics')closeDiagnostics();
       else if(state.screen==='detail')closeDetail();
-      else if(editing && active.blur)active.blur();
+      else if(editing) {
+        var exitDirection=active.tagName==='SELECT'?'right':'down';
+        if(!navigate(exitDirection) && !navigate(exitDirection==='right'?'left':'up') && active.blur)active.blur();
+      }
       else if(state.screen==='catalog') {
         // When running as a hosted VIDAA app, Back from home exits.
         if(window.history && window.history.length>1)window.history.back();
@@ -663,7 +673,33 @@
       }
       e.preventDefault();return;
     }
-    if(editing)return; // Native keyboard/select handles typing and cursor movement.
+    if(key===9) {
+      var controls=focusScopeControls();
+      if(controls.length) {
+        var position=controls.indexOf(active);
+        var next=position<0?(e.shiftKey?controls.length-1:0):
+          (position+(e.shiftKey?-1:1)+controls.length)%controls.length;
+        controls[next].focus();e.preventDefault();
+      }
+      return;
+    }
+    if(editing) {
+      // Inputs keep text/caret keys; vertical arrows leave the field. Selects
+      // keep native option arrows and use horizontal arrows to leave.
+      var leaveInput=active.tagName==='INPUT' && (key===38||key===40);
+      var leaveSelect=active.tagName==='SELECT' && (key===37||key===39);
+      var caretEdge=false;
+      if(active.tagName==='INPUT' && (key===37||key===39)) {
+        try {
+          caretEdge=active.selectionStart===active.selectionEnd &&
+            (key===37?active.selectionStart===0:active.selectionEnd===String(active.value||'').length);
+        }catch(_){}
+      }
+      if(leaveInput||leaveSelect||caretEdge) {
+        if(navigate(key===37?'left':key===38?'up':key===39?'right':'down'))e.preventDefault();
+      }
+      return;
+    }
     if(key===37||key===38||key===39||key===40) {
       navigate(key===37?'left':key===38?'up':key===39?'right':'down');
       e.preventDefault();
