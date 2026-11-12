@@ -311,6 +311,6 @@ test('VOD: prefers MP4 or HLS over duplicate MKV without changing unrelated titl
   const parsed = provider.parseM3u(playlist);
   assert.equal(parsed.movies.length, 2);
   assert.equal(parsed.stats.duplicatesCount, 1);
-  assert.match(parsed.movies.find(x => x.title === 'Ejemplo (2021)').streamUrl, /2\\.mp4$/);
-  assert.match(parsed.movies.find(x => x.title === 'Otra (2022)').streamUrl, /3\\.mkv$/);
+  assert.match(parsed.movies.find(x => x.title === 'Ejemplo (2021)').streamUrl, /2\.mp4$/);
+  assert.match(parsed.movies.find(x => x.title === 'Otra (2022)').streamUrl, /3\.mkv$/);
 });
