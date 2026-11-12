@@ -353,6 +353,17 @@ class M3uProvider {
       },
       movieCategories,
       seriesCategories,
+      liveChannels: liveChannels.filter(ch => !/\\b(?:xxx|adult|porno|porn)\\b|\\+18|🔞/i.test(ch.title+' '+ch.groupTitle)).map(ch => {
+        const parsed = parseXtreamPath(ch.url);
+        return {
+          id: 'priv-' + hash(ch.title + '|' + ch.url),
+          name: ch.title,
+          category: /sport|deport|futbol|football|liga|padel|espn/i.test(ch.title+' '+ch.groupTitle) ? 'Deportes' : cleanCategory(ch.groupTitle),
+          logo: ch.logo,
+          streamPath: parsed && parsed.type === 'live' ? parsed.relativePath : '',
+          hasStream: !!(parsed && parsed.type === 'live')
+        };
+      }).filter(ch => ch.hasStream),
       movies: processedMovies,
       series: processedSeries
     };
@@ -450,6 +461,11 @@ class M3uProvider {
       stats: data.stats,
       movieCategories: data.movieCategories,
       seriesCategories: data.seriesCategories,
+      liveChannels: (data.liveChannels || []).map(ch => ({
+        id: ch.id, name: ch.name, category: ch.category,
+        logo: safeArtwork(ch.logo), streamPath: /^\\/live\\/[A-Za-z0-9._-]+$/.test(ch.streamPath || '') ? ch.streamPath : '',
+        hasStream: !!ch.hasStream
+      })),
       movies: sanitizeMovies,
       series: sanitizeSeries
     };
