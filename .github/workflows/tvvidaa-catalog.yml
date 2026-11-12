@@ -77,11 +77,16 @@ jobs:
           curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/api/session | grep '"authenticated":false'
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' \
             -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:38590/api/ping)" = "401"
-          curl -fsS -c /tmp/vidaa-test-cookies \
+          # The login cookie is Secure; curl correctly will not send it via the
+          # local HTTP loopback URL. Carry it explicitly only for this isolated test.
+          curl -fsS -D /tmp/vidaa-test-headers -o /tmp/vidaa-test-login \
             -H 'Host: tv.example.test' -H 'Content-Type: application/json' \
             -d '{"password":"test-passphrase-at-least-fourteen-characters"}' \
-            http://127.0.0.1:38590/api/login | grep '"authenticated":true'
-          curl -fsS -b /tmp/vidaa-test-cookies -H 'Host: tv.example.test' \
+            http://127.0.0.1:38590/api/login
+          grep '"authenticated":true' /tmp/vidaa-test-login
+          cookie=$(grep -i '^set-cookie:' /tmp/vidaa-test-headers | cut -d' ' -f2 | cut -d';' -f1 | tr -d '\r')
+          test -n "$cookie"
+          curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' \
             -H 'Content-Type: application/json' -d '{}' \
             http://127.0.0.1:38590/api/ping | grep '"service":"TVVIDAA-web"'
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' \
