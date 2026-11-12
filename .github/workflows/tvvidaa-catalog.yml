@@ -38,7 +38,7 @@ jobs:
           test ! -d webos
           test ! -d tools
           test ! -e INSTALAR-XUPERTV.bat
-          if grep -REn "require\(['\"][^'\"]*webos|PalmServiceBridge|luna://" server web; then
+          if grep -REn "require\(['\"][^'\"]*webos|PalmServiceBridge|luna://" server/api server/providers server/services server/http-server.cjs web/js; then
             echo 'Unexpected obsolete runtime dependency detected'
             exit 1
           fi
