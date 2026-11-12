@@ -439,11 +439,12 @@
       return;
     }
     state.hls=new window.Hls({enableWorker:false});
+    var instance=state.hls;
     state.hls.loadSource(source);
     state.hls.attachMedia($('video'));
-    state.hls.on(window.Hls.Events.MANIFEST_PARSED,function(){playCurrentVideo();});
+    state.hls.on(window.Hls.Events.MANIFEST_PARSED,function(){if(state.hls===instance)playCurrentVideo();});
     state.hls.on(window.Hls.Events.ERROR,function(_event,data){
-      if(data && data.fatal && state.screen==='player' && playerKind==='tv' && state.hls) tryNextLiveSource('La señal HLS falló.');
+      if(data && data.fatal && state.screen==='player' && playerKind==='tv' && state.hls===instance) tryNextLiveSource('La señal HLS falló.');
     });
   }
   var hlsScriptLoading=false, hlsScriptCallbacks=[];
@@ -509,7 +510,15 @@
     state.liveWatchdog=setInterval(function(){
       if(state.screen!=='player'||playerKind!=='tv'||!state.currentChannel)return;
       var video=$('video');
-      if(document.hidden || video.paused || video.ended || !state.liveStarted)return;
+      if(document.hidden || video.ended)return;
+      if(!state.liveStarted){
+        if(Date.now()-state.liveLastProgress>35000){
+          stopLiveWatchdog();
+          tryNextLiveSource('La señal no inició.');
+        }
+        return;
+      }
+      if(video.paused)return;
       if(video.currentTime>state.liveLastTime+0.15){
         state.liveLastTime=video.currentTime;
         state.liveLastProgress=Date.now();
@@ -538,7 +547,7 @@
   }
   function playResolved(ch) {
     api('resolveLive',{channelCode:ch.channelCode || ch.id,sourceIndex:state.liveSourceIndex},function(err,stream) {
-      if (state.screen!=='player' || state.currentChannel!==ch) return;
+      if (state.screen!=='player' || state.currentChannel!==ch || Number(stream && stream.sourceIndex)!==state.liveSourceIndex && !err) return;
       if (err) {
         state.lastFailure=err;
         if (state.retryCount < 2) {
