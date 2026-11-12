@@ -295,3 +295,22 @@ test('Caché: fallback a último catálogo válido ante fallo de red o respuesta
   assert.equal(fallback.stale, true);
 });
 
+
+
+test('VOD: prefers MP4 or HLS over duplicate MKV without changing unrelated titles', () => {
+  const provider = new M3uProvider();
+  const playlist = [
+    '#EXTM3U',
+    '#EXTINF:-1 group-title="Películas",Ejemplo (2021)',
+    'https://provider.example/movie/u/p/1.mkv',
+    '#EXTINF:-1 group-title="Películas",Ejemplo (2021)',
+    'https://provider.example/movie/u/p/2.mp4',
+    '#EXTINF:-1 group-title="Películas",Otra (2022)',
+    'https://provider.example/movie/u/p/3.mkv'
+  ].join('\n');
+  const parsed = provider.parseM3u(playlist);
+  assert.equal(parsed.movies.length, 2);
+  assert.equal(parsed.stats.duplicatesCount, 1);
+  assert.match(parsed.movies.find(x => x.title === 'Ejemplo (2021)').streamUrl, /2\.mp4$/);
+  assert.match(parsed.movies.find(x => x.title === 'Otra (2022)').streamUrl, /3\.mkv$/);
+});

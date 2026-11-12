@@ -6,6 +6,7 @@ const net = require('node:net');
 const { IptvOrgProvider } = require('../providers/iptvOrgProvider.cjs');
 const { M3uProvider } = require('../providers/m3uProvider.cjs');
 const registry = require('./media-registry.cjs');
+const {resolveMkv}=require('../services/mkv-playback.cjs');
 const {permittedMediaOrigin,permittedLiveOrigin} = require('./lib/vod-origin-policy.cjs');
 
 const cacheDir = path.join(__dirname, '..', '.cache');
@@ -178,6 +179,16 @@ async function handler(req, res) {
       catch (_) { return respond(res,415,{errorText:'Origen de video inválido'}); }
       if (!permittedMediaOrigin(url) || isUnsafeHost(url.hostname)) {
         return respond(res,415,{errorText:'La fuente privada no tiene un origen HTTPS o HTTP autorizado'});
+      }
+      if (result.mime === 'video/x-matroska') {
+        const playback=await resolveMkv({url:url.toString(),hosts:[url.hostname.toLowerCase()]});
+        if(playback.busy)return respond(res,429,{errorText:'Ya hay una reproducción MKV en curso. Intenta más tarde.',errorCode:'MKV_BUSY'});
+        if(playback.unsupported)return respond(res,415,{errorText:'El códec de este MKV no es compatible con el servidor.',errorCode:'MKV_CODEC_UNSUPPORTED'});
+        return respond(res,200,{
+          contentId:id,isHls:true,mime:'application/vnd.apple.mpegurl',
+          mediaUrl:playback.mediaUrl,mediaExpiresAt:playback.expires,
+          title:String(result.item && result.item.title || '')
+        });
       }
       if (!['video/mp4','application/vnd.apple.mpegurl','video/mp2t'].includes(result.mime)) {
         // Do not mislabel unsupported containers as MP4 or disclose private URLs.
