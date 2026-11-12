@@ -16,6 +16,7 @@ const PUBLIC_FILES = new Map([
   ['index.html', 'text/html; charset=utf-8'],
   ['config/api.js', 'text/javascript; charset=utf-8'],
   ['js/access.js', 'text/javascript; charset=utf-8'],
+  ['js/search-scope.js', 'text/javascript; charset=utf-8'],
   ['js/app.js', 'text/javascript; charset=utf-8'],
   ['js/webOSTV.js', 'text/javascript; charset=utf-8'],
   ['css/access.css', 'text/css; charset=utf-8'],
