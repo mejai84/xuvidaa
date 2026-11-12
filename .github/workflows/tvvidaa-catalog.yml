@@ -46,12 +46,34 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin hostinger-vps --depth=1 || true
-          if git rev-parse --verify origin/hostinger-vps >/dev/null 2>&1; then
-            changed=$(git diff --name-only origin/hostinger-vps...HEAD -- webos/fidelity/js/app.js webos/services/)
-            if [ -n "$changed" ]; then
-              echo "Protected playback files changed unexpectedly:"; echo "$changed"; exit 1
-            fi
+          changed=$(git diff --name-only origin/hostinger-vps...HEAD -- webos/services/)
+          if [ -n "$changed" ]; then
+            echo "Protected webOS player service changed unexpectedly:"; echo "$changed"; exit 1
           fi
+          # The UI app.js contains both search/menus and protected playback.
+          # Allow only localized menu/search edits relative to the production branch.
+          node - <<'NODE'
+          const cp = require('node:child_process');
+          const diff = cp.execFileSync('git', ['diff', '--unified=0', 'origin/hostinger-vps...HEAD', '--', 'webos/fidelity/js/app.js'], {encoding:'utf8'});
+          // Allowed baseline ranges: catalog roots, tabs, search state, search key routing,
+          // home launcher, and the search screen. No media/player/episode functions.
+          const allowed = [[45,80],[795,842],[861,898],[1265,1330],[1620,1740],[3295,3605]];
+          const prohibited = /\b(?:playUrl|resolveSmooth|restartCurrentPlayback|forceRelay|playerSeek|streamMode|ffmpeg-relay|proxy\.js|dnsx\.js)\b/;
+          for (const line of diff.split('\n')) {
+            const hunk = /^@@ -(\d+)/.exec(line);
+            if (hunk) {
+              const n = Number(hunk[1]);
+              if (!allowed.some(([start,end]) => n >= start && n <= end)) {
+                throw new Error('Unreviewed app.js change outside search/menu ranges near original line ' + n);
+              }
+            } else if ((line.startsWith('+') && !line.startsWith('+++')) ||
+                       (line.startsWith('-') && !line.startsWith('---'))) {
+              if (prohibited.test(line)) {
+                throw new Error('Protected playback code changed in diff');
+              }
+            }
+          }
+          NODE
 
       - name: Docker image build
         run: docker build -f deploy/hostinger/Dockerfile -t tvvidaa-catalog:ci .
