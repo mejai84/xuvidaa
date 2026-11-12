@@ -256,6 +256,43 @@
     try { video.load(); } catch (_) {}
     state.currentChannel=null;
   }
+  function playCurrentVideo() {
+    var play=$('video').play();
+    if (play && play.catch) play.catch(function () {
+      text('playerMessage','Pulsa Play para iniciar la reproducción.');
+    });
+  }
+  function useHlsLibrary(source) {
+    if (!window.Hls || !window.Hls.isSupported || !window.Hls.isSupported()) {
+      text('playerMessage','Este dispositivo no admite el formato HLS de este canal.');
+      return;
+    }
+    state.hls=new window.Hls({enableWorker:false});
+    state.hls.loadSource(source);
+    state.hls.attachMedia($('video'));
+    playCurrentVideo();
+  }
+  var hlsScriptLoading=false, hlsScriptCallbacks=[];
+  function getHlsLibrary(done) {
+    if (window.Hls) return done(true);
+    hlsScriptCallbacks.push(done);
+    if (hlsScriptLoading) return;
+    hlsScriptLoading=true;
+    var script=document.createElement('script'), finished=false;
+    function complete(ok) {
+      if (finished) return;
+      finished=true;
+      hlsScriptLoading=false;
+      var callbacks=hlsScriptCallbacks.slice();hlsScriptCallbacks=[];
+      for(var i=0;i<callbacks.length;i++)callbacks[i](ok);
+    }
+    script.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';
+    script.async=true;
+    script.onload=function(){complete(!!window.Hls);};
+    script.onerror=function(){complete(false);};
+    document.head.appendChild(script);
+    setTimeout(function(){complete(!!window.Hls);},10000);
+  }
   function attachMedia(data) {
     var video=$('video'), source=data.mediaUrl;
     if (!source || source.indexOf('/api/media?token=')!==0) {
@@ -266,18 +303,24 @@
     video.removeAttribute('src');
     if (data.isHls && video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src=source;
-    } else if (data.isHls && window.Hls && window.Hls.isSupported && window.Hls.isSupported()) {
-      state.hls=new window.Hls({enableWorker:false});
-      state.hls.loadSource(source);
-      state.hls.attachMedia(video);
-    } else if (!data.isHls) {
-      video.src=source;
+      playCurrentVideo();
+    } else if (data.isHls) {
+      if (window.Hls) {
+        useHlsLibrary(source);
+      } else {
+        var current=state.currentChannel;
+        text('playerMessage','Preparando reproductor HTML5…');
+        getHlsLibrary(function(ok) {
+          if(state.screen!=='player'||state.currentChannel!==current)return;
+          if(!ok){text('playerMessage','El reproductor HLS no está disponible.');return;}
+          text('playerMessage','');
+          useHlsLibrary(source);
+        });
+      }
     } else {
-      text('playerMessage','Este televisor no admite el formato de este canal.');
-      return;
+      video.src=source;
+      playCurrentVideo();
     }
-    var play=video.play();
-    if (play && play.catch) play.catch(function(){text('playerMessage','Pulsa Play para iniciar la reproducción.');});
   }
   function playResolved(ch) {
     api('resolveLive',{channelCode:ch.channelCode || ch.id},function(err,stream) {
