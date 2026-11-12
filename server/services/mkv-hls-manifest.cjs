@@ -12,7 +12,7 @@ function rewriteLocalPlaylist(body, makeUrl) {
   const output=lines.map(line=>{
     if (!line || line[0]==='#') {
       // FFmpeg's local HLS must not emit external key/map/variant references.
-      if (/^#EXT-X-(?:KEY|SESSION-KEY|MAP|MEDIA|STREAM-INF|I-FRAME-STREAM-INF)/.test(line) ||
+      if (/^#EXT-X-(?:KEY|SESSION-KEY|MAP|MEDIA|STREAM-INF|I-FRAME-STREAM-INF)(?=:|$)/.test(line) ||
           /URI\s*=/i.test(line)) throw new Error('Referencia HLS no permitida');
       return line;
     }
