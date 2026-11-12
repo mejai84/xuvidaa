@@ -233,7 +233,7 @@ async function handler(req, res) {
         let uri;
         try { uri = new URL(urlString); } catch (_) { return respond(res,415,{errorText:'Origen privado no disponible'}); }
         if (!permittedMediaOrigin(uri) || isUnsafeHost(uri.hostname)) return respond(res,415,{errorText:'Origen privado no autorizado'});
-        const hls = /\\.m3u8$/i.test(uri.pathname);
+        const hls = /\.m3u8$/i.test(uri.pathname);
         const mime = hls ? 'application/vnd.apple.mpegurl' : 'video/mp2t';
         const issued = registry.register({
           url:uri.toString(),hosts:[uri.hostname.toLowerCase()],
