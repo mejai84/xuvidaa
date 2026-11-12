@@ -34,7 +34,15 @@
       <div class="brand"><span>TV</span>VIDAA</div>
       <div class="top-actions">
         <span id="connection" class="connection">Conectado</span>
+        <label class="profile-box" for="profile"><span>Perfil</span>
+          <select id="profile" aria-label="Perfil familiar">
+            <option value="Principal">Principal</option>
+            <option value="Familia">Familia</option>
+            <option value="Invitados">Invitados</option>
+          </select>
+        </label>
         <button id="searchShortcut" type="button" class="icon-button" aria-label="Ir a búsqueda">⌕ Buscar</button>
+        <button id="diagnosticsButton" type="button" class="icon-button" aria-label="Estado de la aplicación">Estado</button>
         <button id="logout" type="button" class="icon-button" aria-label="Cerrar sesión">Salir</button>
       </div>
     </header>
@@ -64,6 +72,13 @@
             <option value="all">Todos los canales</option>
           </select>
         </div>
+        <div class="quick-actions">
+          <button type="button" id="allFilter" class="view-button selected" aria-pressed="true">Todos</button>
+          <button type="button" id="favoritesFilter" class="view-button" aria-pressed="false">★ Favoritos</button>
+          <button type="button" id="recentFilter" class="view-button" aria-pressed="false">Recientes</button>
+          <button type="button" id="lastChannel" class="view-button" hidden>↺ Último canal</button>
+        </div>
+        <p id="continueHint" class="continue-hint" hidden></p>
         <p id="notice" class="notice" role="status"></p>
         <div id="catalogLoader" class="catalog-loader" role="status" aria-live="polite" hidden>
           <div class="catalog-loader-inner">
@@ -88,6 +103,7 @@
           <span id="detailType" class="eyebrow"></span>
           <h2 id="detailTitle"></h2>
           <p id="detailCategory"></p>
+          <button id="detailFavorite" type="button" class="secondary" aria-pressed="false">☆ Guardar en favoritos</button>
           <p id="detailMessage" class="notice"></p>
           <div id="seasons" class="season-list"></div>
         </div>
@@ -99,12 +115,28 @@
     <div class="player-top">
       <button id="playerBack" type="button" class="secondary">‹ Volver</button>
       <strong id="playerTitle">TV en vivo</strong>
+      <div class="player-actions">
+        <button id="prevChannel" type="button" class="secondary" aria-label="Canal anterior">‹ Canal</button>
+        <button id="nextChannel" type="button" class="secondary" aria-label="Canal siguiente">Canal ›</button>
+        <button id="retryChannel" type="button" class="secondary" aria-label="Reintentar transmisión">Reintentar</button>
+      </div>
     </div>
     <video id="video" controls playsinline preload="none"></video>
     <div id="playerMessage" class="player-message" role="status"></div>
   </section>
 
+  <section id="diagnostics" class="overlay" hidden aria-label="Estado del sistema TVVIDAA">
+    <div class="diagnostic-panel">
+      <button id="diagnosticsBack" type="button" class="secondary">‹ Volver</button>
+      <h2>Estado de TVVIDAA</h2>
+      <p>Comprobaciones del servidor, el catálogo y este dispositivo. No se muestran credenciales.</p>
+      <div id="diagnosticsList" class="diagnostics-list" role="status"></div>
+      <button id="diagnosticsRefresh" type="button" class="primary">Volver a comprobar</button>
+      <div class="privacy-note">Los perfiles y favoritos se guardan únicamente en este dispositivo, no en la nube.</div>
+    </div>
+  </section>
   <!-- HLS.js is loaded only when a device lacks native HLS support. -->
+  <script src="/js/family.js" defer></script>
   <script src="/js/app.js" defer></script>
 </body>
 </html>
