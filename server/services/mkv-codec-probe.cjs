@@ -29,7 +29,7 @@ async function probeMkv({source,spawnProcess=spawn,timeoutMs=12000,maxBytes=MAX_
   try {
     const prefix=await readPrefix(source,maxBytes);
     if(!prefix.length)throw new Error('Archivo vacío');
-    const args=['-v','error','-nostdin','-protocol_whitelist','pipe',
+    const args=['-v','error','-protocol_whitelist','pipe',
       '-probesize',String(maxBytes),'-analyzeduration','5000000',
       '-show_entries','stream=codec_type,codec_name:stream_disposition=attached_pic',
       '-of','json','-i','pipe:0'];
