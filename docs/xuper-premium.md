@@ -29,6 +29,8 @@ equivalencia completa con Electron ni comparación píxel a píxel de su ejecuci
   escritorio, ventana siempre visible y funciones nativas de Electron no se
   habilitan como si fueran capacidades web disponibles.
 
+Para investigar el catálogo de Magis/Xuper, sin presumir acceso al servicio, seguir [REA y VOD Magis](rea-magis-vod.md).
+
 ## Proveedores incluidos
 
 - **Radio Browser:** mismo directorio publico del desktop; busca por pais y texto, guarda favoritos por UUID y reproduce la URL que entrega el proveedor.
