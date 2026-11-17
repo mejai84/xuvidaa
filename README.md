@@ -31,6 +31,12 @@ No se necesitan servicios Luna, aplicaciones LG, IPK o FFmpeg local. El servidor
 
 **VOD privado habilitado en el código:** `POST /api/resolve` acepta exclusivamente IDs internos de películas y episodios. El origen queda solo en la memoria del servidor y el navegador recibe una referencia opaca, de duración limitada. El relay HTTPS respeta `Range`/206 y reescribe manifiestos y segmentos HLS con referencias opacas. Los formatos admitidos son MP4, HLS y TS; MKV/AVI y codecs no compatibles requieren una solución de transcodificación separada. Las pruebas automatizadas usan proveedores simulados: **el streaming real, audio y control remoto deben verificarse en el Hisense antes de considerarlo operativo en producción**.
 
+## Producción oficial: Hostinger VPS / Docker
+
+**TVVIDAA está desplegado en Docker en un VPS de Hostinger**, con dominio `https://tv.rfcsas.com`. **Vercel no se utiliza para producción**: sus builds, estados y despliegues no deben tomarse como evidencia de lo que corre en el VPS.
+
+La guía operativa para Codex, Antigravity y otros agentes es [**Producción: Hostinger VPS / Docker**](docs/PRODUCTION.md). Antes de declarar un despliegue, verificar el contenedor, imagen/commit y salud efectivos en Hostinger. No tocar otros proyectos o contenedores del servidor.
+
 ## Despliegue y variables
 
 Consultar [Instrucciones para Hostinger/Dokploy](deploy/hostinger/README.md).
