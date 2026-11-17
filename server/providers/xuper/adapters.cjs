@@ -6,6 +6,7 @@ const { M3uProvider, parseExtInfLine } = require('../m3uProvider.cjs');
 const { fetchText, validateUrl } = require('./safe-http.cjs');
 const { RadioBrowserAdapter, IptvOrgAdapter } = require('./public-providers.cjs');
 const { InternetArchiveAdapter } = require('./internet-archive.cjs');
+const { normalizeMagisMetadata } = require('./magis-metadata.cjs');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,160}$/;
 const SECTIONS = ['movies', 'series', 'live', 'radio', 'music'];
@@ -210,13 +211,15 @@ class JsonAdapter {
   constructor(config, options = {}) {
     this.id = config.id;
     this.name = config.name;
-    this.format = 'json';
+    this.format = config.format === 'magis-metadata' ? 'magis-metadata' : 'json';
     this.config = config;
     this.secrets = credentialsFor(config);
     this.configured = !!config.url;
-    this.sections = SECTIONS;
+    this.sections = this.format === 'magis-metadata' ? ['movies', 'series'] : SECTIONS;
     this.status = this.configured ? 'configured' : 'not_configured';
-    this.message = this.configured ? 'Conexión pendiente de validar.' : 'Configura un catálogo JSON autorizado en el servidor.';
+    this.message = this.format === 'magis-metadata'
+      ? 'Solo metadatos: no incluye enlaces ni permisos de reproducción.'
+      : (this.configured ? 'Conexión pendiente de validar.' : 'Configura un catálogo JSON autorizado en el servidor.');
     this.fetch = options.fetchText || fetchText;
     this.streamHosts = hostList(config.streamHosts || []);
     this.cached = null;
@@ -239,7 +242,8 @@ class JsonAdapter {
         const url = validateUrl(this.config.url);
         const headers = this.config.authorization ? { Authorization: this.config.authorization } : {};
         const content = await this.fetch(url.href, { allowedHosts: [url.hostname], maxBytes: 16 * 1024 * 1024, headers });
-        this.cached = parseJsonCatalog(JSON.parse(content));
+        const payload = JSON.parse(content);
+        this.cached = parseJsonCatalog(this.format === 'magis-metadata' ? normalizeMagisMetadata(payload) : payload);
         this.status = 'connected';
         this.nextAttemptAt = 0;
         this.message = '';
@@ -257,7 +261,7 @@ class JsonAdapter {
   }
 
   async resolve(id, signal = 0) {
-    if (!this.configured || !this.cached) return null;
+    if (!this.configured || !this.cached || this.format === 'magis-metadata') return null;
     const items = SECTIONS.flatMap((section) => this.cached[section]);
     for (const series of this.cached.series) for (const season of series.seasons || []) items.push(...season.episodes);
     const item = items.find((entry) => entry.id === id);
@@ -293,13 +297,14 @@ function createRegistry(env = process.env, options = {}) {
       for (const config of configs) {
         if (!config || typeof config !== 'object' || !/^[a-z][a-z0-9_-]{0,47}$/.test(config.id || '') || ids.has(config.id) ||
             typeof config.name !== 'string' || !config.name.trim() || config.name.length > 100 ||
-            !['m3u', 'xtream', 'json'].includes(config.format) || config.authorized !== true) throw new Error('INVALID_PROVIDERS');
+            !['m3u', 'xtream', 'json', 'magis-metadata'].includes(config.format) || config.authorized !== true) throw new Error('INVALID_PROVIDERS');
         if (credentialsFor(config).some((value) => value.length >= 3 ? config.id.includes(value) || config.id.includes(encodeURIComponent(value)) : config.id === value)) throw new Error('INVALID_PROVIDERS');
         ids.add(config.id);
         for (const field of ['url', 'baseUrl', 'username', 'password', 'authorization']) if (config[field] !== undefined && (typeof config[field] !== 'string' || config[field].length > 8192 || /[\r\n]/.test(config[field]))) throw new Error('INVALID_PROVIDERS');
         if (config.url) validateUrl(config.url);
         if (config.baseUrl) validateUrl(config.baseUrl);
-        added.push(config.format === 'json' ? new JsonAdapter(config, options) : new M3uAdapter({ ...config, cacheDir: false }, options));
+        added.push(['json', 'magis-metadata'].includes(config.format)
+          ? new JsonAdapter(config, options) : new M3uAdapter({ ...config, cacheDir: false }, options));
       }
       providers.push(...added);
     } catch (_) {
