@@ -84,10 +84,10 @@
   }
   function confirmedRestriction(item) {
     var restriction = item && item.playbackRestriction;
-    return restriction && restriction.code === 'UNSUPPORTED_FORMAT' && typeof restriction.message === 'string' &&
+    return restriction && (restriction.code === 'UNSUPPORTED_FORMAT' || restriction.code === 'CATALOG_ONLY') && typeof restriction.message === 'string' &&
       (!item.signals || item.signals.length < 2) && !(item.signalCount > 1) ? restriction : null;
   }
-  function playAction(item, series, label, className) { var restriction = confirmedRestriction(item); var control = button(restriction ? 'Formato no compatible' : label, function () { play(item, series); }, className, 'play'); if (restriction) { control.disabled = true; control.title = text(restriction.message, 700); } return control; }
+  function playAction(item, series, label, className) { var restriction = confirmedRestriction(item); var control = button(restriction ? (restriction.code === 'CATALOG_ONLY' ? 'Solo catálogo' : 'Formato no compatible') : label, function () { play(item, series); }, className, 'play'); if (restriction) { control.disabled = true; control.title = text(restriction.message, 700); } return control; }
   function setBackgroundInert(inert) { var shell = document.querySelector('.app-shell'); var header = document.querySelector('.topbar'); if (inert) { shell.setAttribute('aria-hidden', 'true'); header.setAttribute('aria-hidden', 'true'); } else { shell.removeAttribute('aria-hidden'); header.removeAttribute('aria-hidden'); } }
   function showLogin() { closePlayer(); closeDetail(); byId('login').hidden = false; setBackgroundInert(true); byId('password').focus(); }
   function mountProfiles() { var select = byId('profile-select'); clear(select); preferences.profiles.forEach(function (p) { option(select, p.name, p.id); }); select.value = preferences.active; }
