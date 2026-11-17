@@ -84,7 +84,9 @@ function createXuperApi(options = {}) {
   }
 
   function episodeDto(item, provider, index = 0) {
-    const restriction = list(item.signals).length ? undefined : playbackRestriction(item, 'episode');
+    const restriction = item.catalogOnly
+      ? { code: 'CATALOG_ONLY', message: 'Esta ficha contiene metadatos autorizados, pero no incluye una señal de reproducción.' }
+      : (list(item.signals).length ? undefined : playbackRestriction(item, 'episode'));
     return { id: String(item.id || ''), providerId: provider.id, title: cleanText(item.title || item.name || 'Episodio ' + (index + 1)),
       number: number(item.number || item.episode, index + 1, 100000), season: number(item.season, 1, 10000),
       duration: number(item.duration), poster: safeImage(item.poster || item.logo, sourceUrls(item)), type: 'episode',
@@ -104,8 +106,10 @@ function createXuperApi(options = {}) {
       signalCount: Math.max(1, Math.min(16, list(item.signals).length)),
       downloadable: false };
     if (detail) dto.signals = list(item.signals).slice(0, 16).map((signal, index) => ({ id: String(index), label: cleanText(signal.label || 'Señal ' + (index + 1), 64) }));
-    if (detail && dto.type !== 'series' && !dto.signals.length) {
-      const restriction = playbackRestriction(item, dto.type);
+    if (detail && dto.type !== 'series' && (item.catalogOnly || !dto.signals.length)) {
+      const restriction = item.catalogOnly
+        ? { code: 'CATALOG_ONLY', message: 'Este catálogo no proporciona permisos ni enlaces de reproducción.' }
+        : playbackRestriction(item, dto.type);
       if (restriction) dto.playbackRestriction = restriction;
     }
     if (detail) dto.seasons = list(item.seasons).slice(0, 200).map((season, index) => ({
