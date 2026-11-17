@@ -29,3 +29,16 @@ input,select{background:var(--panel);border-color:var(--line);border-radius:10px
 .mosaic-tile.no-artwork .mosaic-title,.mosaic-tile.no-artwork .mosaic-shade{display:none}.mosaic-tile.no-artwork .poster-fallback{gap:12px;padding:20px}.mosaic-tile.no-artwork .poster-fallback>svg{width:36px;height:36px}.mosaic-tile.no-artwork .poster-fallback>span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;max-width:100%;max-height:2.6em;overflow:hidden;text-overflow:ellipsis;font-size:20px;line-height:1.3;overflow-wrap:anywhere}
 @media(max-width:1200px) and (min-width:761px){.mosaic-tile.no-artwork:not(.large) .poster-fallback{gap:6px;padding:9px 10px}.mosaic-tile.no-artwork:not(.large) .poster-fallback>svg{width:22px;height:22px}.mosaic-tile.no-artwork:not(.large) .poster-fallback>span{font-size:13px;line-height:1.3}.mosaic-tile.no-artwork.large .poster-fallback>span{font-size:18px}}
 @media(max-width:760px){.mosaic-tile.no-artwork .poster-fallback{gap:6px;padding:9px 10px}.mosaic-tile.no-artwork .poster-fallback>svg{width:22px;height:22px}.mosaic-tile.no-artwork .poster-fallback>span{font-size:13px;line-height:1.3}}
+
+
+/* Episode browser: safe, browser-native counterpart of the desktop episode drawer. */
+.episode-picker{position:absolute;z-index:3;left:50%;bottom:7%;transform:translateX(-50%);width:min(950px,94vw);max-height:72vh;overflow:auto;padding:24px;background:#15171cf5;border:1px solid #636879;box-shadow:0 18px 70px #000c;border-radius:14px}
+.episode-picker-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.episode-picker-heading h3{margin:0;font-size:23px}
+.episode-picker>label{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.episode-picker>label select{width:min(350px,75vw)}
+.player-episode-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.player-episode-list .button{width:100%;min-height:65px;justify-content:flex-start;text-align:left;white-space:normal}
+.player-episode-list .button[aria-current="true"]{border-color:var(--accent);background:#403023}
+.player-episode-list .button:disabled{opacity:.55}
+@media(max-width:760px){.episode-picker{bottom:3%;width:96vw;max-height:82vh;padding:16px}.episode-picker-heading{align-items:flex-start}.episode-picker-heading h3{font-size:18px}.episode-picker>label{flex-direction:column;align-items:stretch}.player-episode-list{grid-template-columns:1fr}}
