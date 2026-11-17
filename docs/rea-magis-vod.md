@@ -62,6 +62,28 @@ El módulo `web/xuper` y `server/api/xuper` ya exponen operaciones web de `catal
 
 **No se dispone de un contrato de API autorizado, sesión válida ni credenciales emitidas para TVVIDAA, ni de licencias multimedia verificadas.** REA permite comprender cómo opera el cliente, pero no suministra esos derechos ni constituye una llave universal. El repositorio comunitario bajo MIT licencia **su código original**, no las películas, series, marcas ni servicios externos.
 
+## Adaptador de metadatos y REA verificable (nueva implementación)
+
+La rama de investigación incluye `server/providers/xuper/magis-metadata.cjs`, que transforma **únicamente metadatos** con la estructura `recommendList`, `searchItemList` y `assetData/simpleProgramList` encontrada en el cliente público. **No implementa inicio de sesión en Magis, resolución de enlaces, DRM ni reproducción.** El adaptador rechaza obtener streams y no almacena credenciales del portal. Las películas y episodios se identifican como `Solo catálogo` en la interfaz.
+
+Se puede incorporar un **JSON exportado por un proveedor que haya autorizado ese uso**. Configuración de ejemplo para `XUPER_PROVIDERS_JSON` (solo en las variables privadas de Hostinger, nunca en Git):
+
+```json
+[
+  {
+    "id": "mis_metadatos",
+    "name": "Metadatos autorizados",
+    "authorized": true,
+    "format": "magis-metadata",
+    "url": "https://catalogo-autorizado.example/export.json"
+  }
+]
+```
+
+El formato solo procesa datos de catálogo. No crea una conexión directa con Magis; la dirección es ilustrativa. Si no existe un export permitido, el proveedor se mantiene sin configurar.
+
+Se agregó `.github/workflows/rea-magis-audit.yml` para intentar ejecutar **REA 6.9.0** en un runner GitHub Actions aislado, sobre la revisión pública fija `8c81b29550de72c4aa175f54f669597796bb73f4` del port comunitario. El workflow no usa contraseñas ni consulta el portal; tampoco publica el análisis crudo. Su presencia en Git **no acredita que haya ejecutado o pasado**: consultar estado en Actions.
+
 ## Estado y trazabilidad de este trabajo
 
 - Investigación estática previa: **existente** (informes y código fuente).
