@@ -60,10 +60,35 @@ function createXuperApi(options = {}) {
     return Number.isFinite(parsed) && parsed >= 0 ? Math.min(maximum, parsed) : fallback;
   }
 
+  function playbackRestriction(stream, type) {
+    let pathname = '';
+    try {
+      if (stream.streamUrl || stream.url) pathname = new URL(stream.streamUrl || stream.url).pathname;
+      else if (typeof stream.streamPath === 'string') pathname = stream.streamPath;
+    } catch (_) { return undefined; }
+
+    const mime = String(stream.mime || '').split(';')[0].trim().toLowerCase();
+    let format;
+    if (/\.mkv$/i.test(pathname) || /^(?:video|application)\/(?:x-)?matroska$/.test(mime)) format = 'MKV';
+    else if (/\.avi$/i.test(pathname) || /^video\/(?:x-msvideo|avi)$/.test(mime)) format = 'AVI';
+    else if ((type === 'live' || type === 'radio') && !/\.m3u8$/i.test(pathname) && !/mpegurl/i.test(mime) &&
+      (/\.ts$/i.test(pathname) || mime === 'video/mp2t')) format = 'TS';
+    if (!format) return undefined;
+
+    return {
+      code: 'UNSUPPORTED_FORMAT',
+      message: format === 'TS'
+        ? 'Esta señal usa TS directo. Pide al proveedor una señal HLS compatible.'
+        : `Esta fuente usa ${format}. Pide al proveedor una versión en HLS o MP4 compatible con tu navegador o TV.`
+    };
+  }
+
   function episodeDto(item, provider, index = 0) {
+    const restriction = list(item.signals).length ? undefined : playbackRestriction(item, 'episode');
     return { id: String(item.id || ''), providerId: provider.id, title: cleanText(item.title || item.name || 'Episodio ' + (index + 1)),
       number: number(item.number || item.episode, index + 1, 100000), season: number(item.season, 1, 10000),
-      duration: number(item.duration), poster: safeImage(item.poster || item.logo, sourceUrls(item)), type: 'episode' };
+      duration: number(item.duration), poster: safeImage(item.poster || item.logo, sourceUrls(item)), type: 'episode',
+      ...(restriction ? { playbackRestriction: restriction } : {}) };
   }
 
   function card(item, provider, detail = false) {
@@ -79,6 +104,10 @@ function createXuperApi(options = {}) {
       signalCount: Math.max(1, Math.min(16, list(item.signals).length)),
       downloadable: false };
     if (detail) dto.signals = list(item.signals).slice(0, 16).map((signal, index) => ({ id: String(index), label: cleanText(signal.label || 'Señal ' + (index + 1), 64) }));
+    if (detail && dto.type !== 'series' && !dto.signals.length) {
+      const restriction = playbackRestriction(item, dto.type);
+      if (restriction) dto.playbackRestriction = restriction;
+    }
     if (detail) dto.seasons = list(item.seasons).slice(0, 200).map((season, index) => ({
       id: publicId(season.id) ? String(season.id) : 'season-' + (index + 1), number: number(season.number, index + 1, 10000),
       title: cleanText(season.title || 'Temporada ' + (index + 1)),
@@ -141,8 +170,8 @@ function createXuperApi(options = {}) {
     return item ? { provider, catalog, item, id } : null;
   }
 
-  function mimeOf(stream) {
-    const path = new URL(stream.streamUrl).pathname.toLowerCase();
+  function mimeOf(stream, url) {
+    const path = url.pathname.toLowerCase();
     if (/\.m3u8$/.test(path) || /mpegurl/i.test(String(stream.mime || ''))) return 'application/vnd.apple.mpegurl';
     if (/\.ts$/.test(path)) return 'video/mp2t';
     if (/\.mp3$/.test(path)) return 'audio/mpeg';
@@ -152,7 +181,6 @@ function createXuperApi(options = {}) {
     if (/\.wav$/.test(path)) return 'audio/wav';
     if (/\.flac$/.test(path)) return 'audio/flac';
     if (/\.webm$/.test(path)) return 'video/webm';
-    if (/\.(?:mkv|avi)$/.test(path)) return 'unsupported';
     const supplied = String(stream.mime || '');
     return /^(?:audio\/(?:mpeg|aac|ogg|mp4|wav|flac)|video\/(?:mp4|webm|mp2t))$/.test(supplied) ? supplied : (stream.type === 'radio' || stream.type === 'music' ? 'audio/mpeg' : 'video/mp4');
   }
@@ -258,13 +286,12 @@ function createXuperApi(options = {}) {
       if (!Number.isInteger(signalValue) || signalValue < 0 || signalValue > 15) throw new Error('INVALID_INPUT');
       const stream = await provider.resolve(id, signalValue);
       if (!stream || !stream.streamUrl) return fail(res, 404, 'No hay una señal disponible para este contenido.', 'STREAM_NOT_FOUND');
+      const restriction = playbackRestriction(stream, item.type);
+      if (restriction) return fail(res, 415, restriction.message, restriction.code);
       let url;
       try { url = validateUrl(stream.streamUrl); }
-      catch (_) { return fail(res, 415, 'El proveedor debe ofrecer una fuente HTTPS pública y compatible.', 'UNSUPPORTED_SOURCE'); }
-      const mime = mimeOf(stream);
-      if (mime === 'unsupported' || ((item.type === 'live' || item.type === 'radio') && mime === 'video/mp2t')) {
-        return fail(res, 415, 'Este formato requiere una señal HLS, MP4 o audio compatible. La transcodificación no está habilitada.', 'UNSUPPORTED_FORMAT');
-      }
+      catch (_) { return fail(res, 415, 'El origen de esta señal requiere una URL HTTPS pública y compatible del proveedor.', 'UNSUPPORTED_SOURCE'); }
+      const mime = mimeOf(stream, url);
       const live = item.type === 'live' || item.type === 'radio' || !!stream.live;
       const expiresAt = timestamp + (live ? 30 * 60 * 1000 : Math.min(6 * 3600 * 1000, Math.max(3600 * 1000, (number(stream.duration, 14400) + 1800) * 1000)));
       const hosts = Array.from(new Set([url.hostname, ...list(provider.streamHosts)])).slice(0, 64);

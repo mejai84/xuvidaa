@@ -136,12 +136,30 @@ test('series episodes, HLS live signals, radio and music use the same protected 
 test('unsupported and unsafe source formats are explicit failures', async () => {
   const data = catalog();
   data.movies.push({ id: 'unsafe', title: 'Unsafe', url: 'https://127.0.0.1/admin' });
-  const { handler } = setup(data);
-  for (const id of ['movie2', 'channel-ts', 'unsafe']) {
+  data.movies.push({ id: 'http-mkv', title: 'Película MKV', url: 'http://media.example/' + PRIVATE + '/movie.MKV?source=1' });
+  data.series[0].seasons[0].episodes.push({ id: 'episode-avi', title: 'Episodio AVI', url: 'https://media.example/episode.avi' });
+  const { handler, entries } = setup(data);
+  for (const [id, code] of [['movie2', 'UNSUPPORTED_FORMAT'], ['channel-ts', 'UNSUPPORTED_FORMAT'],
+    ['unsafe', 'UNSUPPORTED_SOURCE'], ['http-mkv', 'UNSUPPORTED_FORMAT']]) {
     const result = await request(handler, 'resolve', { providerId: 'owned', id });
     assert.equal(result.statusCode, 415, id);
     assert.equal(result.body.returnValue, false);
+    assert.equal(result.body.errorCode, code);
+    assert.equal(JSON.stringify(result.body).includes(PRIVATE), false);
   }
+  assert.equal(entries.size, 0);
+
+  const movie = await request(handler, 'detail', { providerId: 'owned', id: 'http-mkv' });
+  assert.equal(movie.body.item.playbackRestriction.code, 'UNSUPPORTED_FORMAT');
+  assert.match(movie.body.item.playbackRestriction.message, /MKV.*HLS o MP4/);
+  assert.equal(JSON.stringify(movie.body).includes(PRIVATE), false);
+  const series = await request(handler, 'detail', { providerId: 'owned', id: 'series1' });
+  const [supported, blocked] = series.body.seasons[0].episodes;
+  assert.equal(supported.playbackRestriction, undefined);
+  assert.equal(blocked.playbackRestriction.code, 'UNSUPPORTED_FORMAT');
+  const alternate = await request(handler, 'detail', { providerId: 'owned', id: 'channel1' });
+  assert.equal(alternate.body.item.playbackRestriction, undefined);
+  assert.equal(alternate.body.item.signals.length, 2);
 });
 
 test('guide reflects provider programmes and unavailable guide has truthful empty state', async () => {

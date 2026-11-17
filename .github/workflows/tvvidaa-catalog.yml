@@ -37,7 +37,6 @@ jobs:
         run: |
           set -euo pipefail
           test ! -d webos
-          test ! -d tools
           test ! -e INSTALAR-XUPERTV.bat
           if grep -REn "require\(['\"][^'\"]*webos|PalmServiceBridge|luna://" server/api server/providers server/services server/http-server.cjs web/js; then
             echo 'Unexpected obsolete runtime dependency detected'
@@ -47,7 +46,7 @@ jobs:
         env:
           MEDIA_TOKEN_SECRET: test-ci-media-secret-32-bytes-minimum-0123456789
           PUBLIC_BASE_URL: https://tv.example.test
-        run: node --test server/*.test.cjs server/providers/*.test.cjs
+        run: node --test server/*.test.cjs server/providers/*.test.cjs server/api/xuper/*.test.cjs server/providers/xuper/*.test.cjs
       - name: Build Docker image
         run: docker build -f deploy/hostinger/Dockerfile -t tvvidaa-web:ci .
       - name: Verify Compose configuration
@@ -76,6 +75,7 @@ jobs:
           curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/js/app.js | grep 'standalone web'
           curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/css/app.css | grep 'standalone responsive'
           curl -fsS -H 'Host: tv.example.test' http://127.0.0.1:38590/api/session | grep '"authenticated":false'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' http://127.0.0.1:38590/xuper/)" = "303"
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' \
             -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:38590/api/ping)" = "401"
           # The login cookie is Secure; curl correctly will not send it via the
@@ -90,5 +90,7 @@ jobs:
           curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' \
             -H 'Content-Type: application/json' -d '{}' \
             http://127.0.0.1:38590/api/ping | grep '"service":"TVVIDAA-web"'
+          curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' http://127.0.0.1:38590/xuper/ | grep '<title>Xuper Premium'
+          curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' http://127.0.0.1:38590/api/xuper/bootstrap | grep '"returnValue":true'
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' \
             http://127.0.0.1:38590/js/access.js)" = "404"
