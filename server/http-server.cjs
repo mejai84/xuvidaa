@@ -17,7 +17,14 @@ const PUBLIC_FILES = new Map([
   ['index.html', 'text/html; charset=utf-8'],
   ['js/app.js', 'text/javascript; charset=utf-8'],
   ['js/family.js', 'text/javascript; charset=utf-8'],
+  ['js/premium-entry.js', 'text/javascript; charset=utf-8'],
+  ['css/premium-entry.css', 'text/css; charset=utf-8'],
   ['css/app.css', 'text/css; charset=utf-8']
+]);
+const XUPER_FILES = new Map([
+  ['index.html', 'text/html; charset=utf-8'], ['app.js', 'text/javascript; charset=utf-8'],
+  ['app.css', 'text/css; charset=utf-8'], ['hls.min.js', 'text/javascript; charset=utf-8'],
+  ['hls-LICENSE.txt', 'text/plain; charset=utf-8'], ['Apache-2.0.txt', 'text/plain; charset=utf-8']
 ]);
 const ASSET_TYPES = new Map([
   ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'],
@@ -126,8 +133,8 @@ async function readJson(req) {
   return value;
 }
 
-async function staticFile(root, relative, req, res) {
-  let mime = PUBLIC_FILES.get(relative);
+async function staticFile(root, relative, req, res, files = PUBLIC_FILES) {
+  let mime = files.get(relative);
   if (!mime && /^(assets|images)\//.test(relative)) mime = ASSET_TYPES.get(path.extname(relative).toLowerCase());
   if (!mime) return json(res, 404, { error: 'No encontrado' });
   const filename = path.join(root, ...relative.split('/'));
@@ -145,7 +152,7 @@ async function staticFile(root, relative, req, res) {
     const etag = 'W/"' + stat.size.toString(16) + '-' + Math.trunc(stat.mtimeMs).toString(16) + '"';
     res.setHeader('Content-Type', mime);
     res.setHeader('ETag', etag);
-    res.setHeader('Cache-Control', /^(assets|images)\//.test(relative) ? 'public, max-age=86400' : 'no-cache');
+    res.setHeader('Cache-Control', files !== PUBLIC_FILES ? 'private, no-store' : (/^(assets|images)\//.test(relative) ? 'public, max-age=86400' : 'no-cache'));
     if (req.headers['if-none-match'] === etag) { await handle.close(); res.statusCode = 304; return res.end(); }
     res.setHeader('Content-Length', stat.size);
     if (req.method === 'HEAD') { await handle.close(); return res.end(); }
@@ -162,11 +169,13 @@ async function staticFile(root, relative, req, res) {
 function createServer(options) {
   const publicUrl = originOf(options.publicOrigin);
   const root = fs.realpathSync(options.root);
+  const xuperRoot = options.xuperRoot || path.join(__dirname, '../web/xuper');
   const accessPassword = options.accessPassword || '';
   const sessionSecret = options.sessionSecret || '';
   const loginAttempts = new Map();
   const apiHandler = options.apiHandler;
   const mediaHandler = options.mediaHandler;
+  const xuperHandler = options.xuperHandler;
   if (!!accessPassword !== !!sessionSecret) throw new Error('La clave web y el secreto de sesión deben configurarse juntos.');
   if (accessPassword && Buffer.byteLength(accessPassword) < 14) throw new Error('VIDAA_WEB_PASSWORD debe tener al menos 14 caracteres.');
   if (sessionSecret && Buffer.byteLength(sessionSecret) < 32) throw new Error('VIDAA_SESSION_SECRET debe tener al menos 32 bytes.');
@@ -232,9 +241,28 @@ function createServer(options) {
         res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`);
         return json(res, 200, { authenticated: false });
       }
+      if (decoded === '/xuper' || decoded.startsWith('/xuper/')) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Metodo no permitido' });
+        res.setHeader('Cache-Control', 'no-store');
+        if (!hasSession(req, sessionSecret)) {
+          res.writeHead(303, { Location: '/?next=/xuper/' });
+          return res.end();
+        }
+        if (decoded === '/xuper') { res.writeHead(308, { Location: '/xuper/' }); return res.end(); }
+        return staticFile(xuperRoot, decoded === '/xuper/' ? 'index.html' : decoded.slice('/xuper/'.length), req, res, XUPER_FILES);
+      }
       const isProtectedApi = decoded === '/api/media' || decoded.startsWith('/api/');
       if (isProtectedApi && !hasSession(req, sessionSecret)) {
         return json(res, 401, { error: 'Inicia sesión para continuar.' });
+      }
+      const xuperMatch = /^\/api\/xuper\/([a-z]+)$/.exec(decoded);
+      if (xuperMatch) {
+        if (req.method !== 'GET' && req.method !== 'POST') return json(res, 405, { error: 'Metodo no permitido' });
+        if (req.headers.origin && req.headers.origin !== publicUrl.origin) return json(res, 403, { error: 'Origen no permitido' });
+        if (typeof xuperHandler !== 'function') return json(res, 503, { error: 'Modulo premium no disponible.' });
+        req.query = Object.assign(Object.fromEntries(url.searchParams), { action: xuperMatch[1] });
+        req.body = req.method === 'POST' ? await readJson(req) : undefined;
+        return Promise.resolve(xuperHandler(req, res)).catch(() => json(res, 502, { error: 'No se pudo completar la solicitud premium' }));
       }
       if (decoded === '/api/media') {
         req.query = Object.fromEntries(url.searchParams);
@@ -288,6 +316,7 @@ function main() {
     accessPassword,
     sessionSecret,
     apiHandler: require('./api/vidaa-api.cjs'),
+    xuperHandler: require('./api/xuper/index.cjs').createXuperApi(),
     mediaHandler: require('./api/media.cjs')
   });
   server.on('error', (error) => {

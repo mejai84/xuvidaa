@@ -17,11 +17,19 @@ test('TVVIDAA has exactly three first-level tabs and contextual search', () => {
   assert.match(app, /Buscar series/);
 });
 
-test('frontend is completely independent of webOS and Xuper services', () => {
-  assert.doesNotMatch(html, /(?:webos|xuper|palmservicebridge|luna)/i);
+test('frontend remains independent of webOS services and links only to the isolated Xuper web module', () => {
+  assert.doesNotMatch(html, /(?:webos|palmservicebridge|luna)/i);
+  assert.match(html, /href="\/xuper\/"/);
   assert.doesNotMatch(app, /(?:PalmServiceBridge|luna:\/\/|webOSTV\.js|XuperTV)/i);
   assert.ok(!fs.existsSync(path.join(root, 'webos')));
   assert.ok(!fs.existsSync(path.join(root, 'tools/vendor/ffmpeg-7.0.2-armhf-static.tar.xz')));
+});
+
+test('premium entry redirects to the module only after the existing session opens', () => {
+  const entry = fs.readFileSync(path.join(root, 'web/js/premium-entry.js'), 'utf8');
+  assert.match(entry, /getElementById\('shell'\)/);
+  assert.match(entry, /window\.location\.replace\('\/xuper\/'\)/);
+  assert.match(entry, /keyCode \|\| event\.which\) === 405/);
 });
 
 test('static web server exposes only new native web assets', () => {

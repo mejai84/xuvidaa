@@ -43,6 +43,8 @@ services:
       VIDAA_HTTP_LIVE_ACK: ${VIDAA_HTTP_LIVE_ACK:-no}
       VIDAA_HTTP_VOD_ACK: ${VIDAA_HTTP_VOD_ACK:-no}
       VIDAA_HTTP_VOD_HOSTS: ${VIDAA_HTTP_VOD_HOSTS:-}
+      XUPER_PROVIDERS_JSON: ${XUPER_PROVIDERS_JSON:-}
+      XUPER_ENABLE_ARCHIVE: ${XUPER_ENABLE_ARCHIVE:-false}
     volumes:
       - xuvidaa-catalog-cache:/app/server/.cache
     restart: unless-stopped
