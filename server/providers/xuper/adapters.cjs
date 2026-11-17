@@ -246,7 +246,7 @@ class JsonAdapter {
         this.cached = parseJsonCatalog(this.format === 'magis-metadata' ? normalizeMagisMetadata(payload) : payload);
         this.status = 'connected';
         this.nextAttemptAt = 0;
-        this.message = '';
+        this.message = this.format === 'magis-metadata' ? 'Solo metadatos autorizados; sin reproducción habilitada.' : '';
         this.updatedAt = Date.now();
         return this.cached;
       } catch (_) {
