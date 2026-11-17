@@ -23,6 +23,7 @@ const PUBLIC_FILES = new Map([
 ]);
 const XUPER_FILES = new Map([
   ['index.html', 'text/html; charset=utf-8'], ['app.js', 'text/javascript; charset=utf-8'],
+  ['episodes.js', 'text/javascript; charset=utf-8'],
   ['app.css', 'text/css; charset=utf-8'], ['hls.min.js', 'text/javascript; charset=utf-8'],
   ['hls-LICENSE.txt', 'text/plain; charset=utf-8'], ['Apache-2.0.txt', 'text/plain; charset=utf-8']
 ]);
