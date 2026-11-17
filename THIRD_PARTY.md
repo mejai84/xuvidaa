@@ -9,3 +9,9 @@ La versión activa es una aplicación HTML5 con código propio para navegación 
 La implementación antigua se conservó en la rama de archivo `archive/xuper-webos-20261111` antes de la limpieza. Sus materiales y las licencias que pudieran requerir permanecen disponibles en esa revisión histórica, pero **no se distribuyen en la nueva aplicación**.
 
 La licencia del código propio se especifica en [LICENSE](LICENSE). La disponibilidad legal de cada stream debe verificarse con su fuente autorizada.
+
+## Xuper Premium web
+
+- `web/xuper/` reconstruye la distribucion observada del desktop con codigo propio. No incluye posters, iconos raster, logotipos ni catalogos extraidos. Vease `docs/xuper-reference-audit.md`.
+- `web/xuper/hls.min.js` es HLS.js 1.6.13, verificado contra la integridad SHA-384 existente de TVVIDAA. Los avisos estan en `web/xuper/hls-LICENSE.txt` y `web/xuper/Apache-2.0.txt`.
+- No se incluyo HLS.js 1.7.4 del instalador portable.
