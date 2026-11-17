@@ -1,5 +1,11 @@
 # Reglas de desarrollo — TVVIDAA web + Hisense VIDAA
 
+## Instrucción prioritaria: entorno de producción
+
+**Producción = Docker en VPS de Hostinger, dominio `https://tv.rfcsas.com`. Vercel queda fuera del flujo de producción.** No usar estados, despliegues ni variables de Vercel para diagnosticar o publicar TVVIDAA. Consultar antes de cualquier cambio [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
+
+Repositorio `mejai84/xuvidaa`, rama de despliegue reportada `hostinger-vps`, directorio `/opt/xuvidaa-tv`, Compose `deploy/hostinger/compose.yaml`, servicio `vidaa` y contenedor reportado `xuvidaa-tv-vidaa-1`. **Confirmar en el VPS** imagen, digest, servicio y commit efectivos; un merge/push no demuestra un despliegue. Conservar rollback y no intervenir otros contenedores/volúmenes. Si no hay acceso al VPS, informar «producción no verificada».
+
 ## Arquitectura vigente
 - Interfaz: `web/index.html`, `web/js/app.js`, `web/css/app.css`.
 - HTTP, sesiones y archivos estáticos: `server/http-server.cjs`.
