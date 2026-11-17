@@ -31,6 +31,10 @@ equivalencia completa con Electron ni comparación píxel a píxel de su ejecuci
 
 Para investigar el catálogo de Magis/Xuper, sin presumir acceso al servicio, seguir [REA y VOD Magis](rea-magis-vod.md).
 
+### Fuente experimental de metadatos con estructura Magis
+
+El nuevo formato `magis-metadata` es un adaptador para un JSON HTTPS **exportado con autorización** que conserve la estructura de datos del port comunitario. Permite mostrar películas, series y episodios, sin extraer credenciales, iniciar sesión en Magis ni resolver streams. La interfaz indica «Solo catálogo» cuando no existe reproducción. Se configura con `authorized: true` en `XUPER_PROVIDERS_JSON`; ver [investigación REA](rea-magis-vod.md). **No equivale a tener acceso a películas premium de Magis.**
+
 ## Proveedores incluidos
 
 - **Radio Browser:** mismo directorio publico del desktop; busca por pais y texto, guarda favoritos por UUID y reproduce la URL que entrega el proveedor.
