@@ -16,6 +16,10 @@ Repositorio `mejai84/xuvidaa`, rama de despliegue reportada `hostinger-vps`, dir
 - **No usar** Luna, LG webOS, Magis, XuperTV, proxy de evasión de bloqueos ni FFmpeg local.
 - Antes de la limpieza, el código histórico quedó respaldado en `archive/xuper-webos-20261111`.
 
+## Investigación de Magis/Xuper mediante REA
+
+Para interoperabilidad de películas/series, consultar [`docs/rea-magis-vod.md`](docs/rea-magis-vod.md). El repositorio REA es `morluto/rea`. Ejecutar el analizador solo en entorno de desarrollo, nunca en producción Hostinger. El análisis estático no da acceso: no recolectar tokens, suplantar sesiones ni licencias, ni habilitar servicios remotos sin autorización. Señalar lo no verificado.
+
 ## Seguridad obligatoria
 - Contraseñas, M3U upstream y secretos exclusivamente en variables del servidor; jamás en Git, navegador, logs ni screenshots.
 - La reproducción VOD usa únicamente IDs internos, referencias opacas y relay HTTPS con DNS/SSRF y `Range`. Mantener las pruebas de expiración, reproducción HLS y validación del catálogo tras un reinicio.
