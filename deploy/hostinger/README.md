@@ -13,6 +13,10 @@
 
 La implementación histórica está guardada en la rama `archive/xuper-webos-20261111`; el árbol de código activo ya no contiene `webos/`. La reversión se hace desplegando un commit anterior conocido, no usando los archivos históricos desde producción.
 
+## Entorno oficial de producción
+
+**El entorno de producción es Docker en el VPS de Hostinger. Vercel no es producción y sus estados no determinan el estado de esta aplicación.** Ver [`docs/PRODUCTION.md`](../../docs/PRODUCTION.md) para las verificaciones obligatorias de contenedor, commit, salud, pruebas y rollback.
+
 ## Despliegue Dokploy
 
 Servicio exclusivo `xuvidaa-tv`, repositorio `mejai84/xuvidaa`, rama `hostinger-vps`, archivo `deploy/hostinger/compose.yaml`, dominio `https://tv.rfcsas.com/`.
