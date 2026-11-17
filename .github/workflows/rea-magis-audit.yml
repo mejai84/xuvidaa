@@ -1,0 +1,53 @@
+name: REA static audit (Xuper reference, no credentials)
+
+on:
+  pull_request:
+    branches: [hostinger-vps]
+    paths:
+      - 'server/providers/xuper/magis-metadata.cjs'
+      - 'server/providers/xuper/magis-metadata.test.cjs'
+      - 'docs/rea-magis-vod.md'
+      - '.github/workflows/rea-magis-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rea-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout TVVIDAA
+        uses: actions/checkout@v4
+      - name: Set up a compatible Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Checkout fixed public source reference
+        uses: actions/checkout@v4
+        with:
+          repository: cristianco7/XUPER-HYDRA-PORT-WEBOS
+          ref: 8c81b29550de72c4aa175f54f669597796bb73f4
+          path: xuper-public-reference
+          persist-credentials: false
+      - name: Run isolated REA static analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Analysis only: NEVER launch the reference service, connect to Magis,
+          # run the portable, or load authentication/session data.
+          npm_config_audit=false npm_config_fund=false npx -y rea-agents@6.9.0 \
+            analyze-javascript-application "$GITHUB_WORKSPACE/xuper-public-reference/webos" --json \
+            > "$RUNNER_TEMP/rea-private-report.json"
+          # Do not publish the raw report; it can include code literals, URLs or secrets.
+          node - "$RUNNER_TEMP/rea-private-report.json" <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (!report || typeof report !== 'object') throw new Error('REA result not a JSON object');
+          // Never print arbitrary report fields or file contents.
+          console.log('REA completed: JSON report parsed successfully; details withheld.');
+          NODE
+          rm -f "$RUNNER_TEMP/rea-private-report.json"
+      - name: Test metadata contract without upstream access
+        run: node --test server/providers/xuper/magis-metadata.test.cjs
