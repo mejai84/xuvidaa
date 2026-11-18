@@ -279,7 +279,16 @@ function createServer(options) {
       }
       if (decoded.startsWith('/api/')) return json(res, 404, { error: 'No encontrado' });
       if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Método no permitido' });
-      return staticFile(root, decoded === '/' ? 'index.html' : decoded.slice(1), req, res);
+      if (decoded === '/' && typeof xuperHandler === 'function' && hasSession(req, sessionSecret)) {
+        // Session dependent. Keep the login and this redirect out of shared caches.
+        res.writeHead(303, { Location: '/xuper/', 'Cache-Control': 'private, no-store' });
+        return res.end();
+      }
+      if (decoded === '/tv') {
+        res.writeHead(308, { Location: '/tv/' });
+        return res.end();
+      }
+      return staticFile(root, decoded === '/' || decoded === '/tv/' ? 'index.html' : decoded.slice(1), req, res);
     } catch (err) {
       json(res, err.status || 500, { error: err.status ? err.message : 'Error del servidor' });
     }

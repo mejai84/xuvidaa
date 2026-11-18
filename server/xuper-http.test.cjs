@@ -61,6 +61,13 @@ test('premium page and all module assets require the existing signed session', a
   }
   assert.equal((await f.request('/api/xuper/bootstrap')).status, 401);
   assert.equal((await f.request('/')).body, 'TVVIDAA');
+  const start = await f.request('/', { headers: f.headers });
+  assert.equal(start.status, 303);
+  assert.equal(start.headers.location, '/xuper/');
+  assert.match(start.headers['cache-control'], /no-store/);
+  const classic = await f.request('/tv/', { headers: f.headers });
+  assert.equal(classic.status, 200);
+  assert.equal(classic.body, 'TVVIDAA');
   assert.equal((await f.request('/xuper', { headers: f.headers })).status, 308);
   const page = await f.request('/xuper/', { headers: f.headers });
   assert.equal(page.body, 'Xuper Premium');

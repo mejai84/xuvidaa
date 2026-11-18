@@ -62,3 +62,30 @@ test('bounded HTTPS download rejects redirects, oversized and compressed respons
   await assert.rejects(fetchText('https://catalog.example/a', { ...options, request: remote(200, 'x', { 'content-length': 100000000 }) }));
   await assert.rejects(fetchText('https://catalog.example/a', { ...options, request: remote(200, 'x', { 'content-encoding': 'gzip' }) }));
 });
+
+test('legacy M3U download uses only the approved exact origin and pinned public DNS', async (t) => {
+  const previousAck = process.env.VIDAA_HTTP_VOD_ACK;
+  const previousHosts = process.env.VIDAA_HTTP_VOD_HOSTS;
+  t.after(() => {
+    if (previousAck === undefined) delete process.env.VIDAA_HTTP_VOD_ACK;
+    else process.env.VIDAA_HTTP_VOD_ACK = previousAck;
+    if (previousHosts === undefined) delete process.env.VIDAA_HTTP_VOD_HOSTS;
+    else process.env.VIDAA_HTTP_VOD_HOSTS = previousHosts;
+  });
+  process.env.VIDAA_HTTP_VOD_ACK = 'yes';
+  process.env.VIDAA_HTTP_VOD_HOSTS = 'catalog.example:8080,catalog.example:8081';
+  const legacyVodOrigin = 'http://catalog.example:8080';
+  const raw = legacyVodOrigin + '/list';
+  const lookup = async () => [{ address: '8.8.8.8', family: 4 }];
+  assert.throws(() => validateUrl(raw));
+  assert.throws(() => validateUrl('http://catalog.example:8081/list', undefined, legacyVodOrigin));
+  assert.throws(() => validateUrl(raw + '#fragment', undefined, legacyVodOrigin));
+  assert.equal(await fetchText(raw, { legacyVodOrigin, lookup, request: remote(200, 'catalog') }), 'catalog');
+  await assert.rejects(fetchText(raw, { legacyVodOrigin, lookup, request: remote(302, '') }));
+  await assert.rejects(fetchText(raw, {
+    legacyVodOrigin, lookup: async () => [{ address: '10.0.0.2', family: 4 }],
+    request: () => assert.fail('private DNS answers must not open a socket')
+  }));
+  process.env.VIDAA_HTTP_VOD_ACK = 'no';
+  assert.throws(() => validateUrl(raw, undefined, legacyVodOrigin));
+});

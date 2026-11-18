@@ -1,10 +1,20 @@
+.splash-screen, .auth-screen {
+  background: radial-gradient(ellipse at 50% 15%, #17243e 0, #080d18 65%);
+}
+.auth-card {
+  background: #101a2b;
+  border-color: #2d4464;
+  border-top: 4px solid #74adff;
+}
+.auth-card .brand span { color: #74adff; }
+
 .home-premium-link {
   flex-shrink: 0;
   padding: 9px 14px;
-  border: 1px solid #ff8a3d;
+  border: 1px solid #4a6890;
   border-radius: 8px;
-  color: #ffb47f;
-  background: #17171a;
+  color: #b8d5ff;
+  background: #16243b;
   font-size: 14px;
   font-weight: 700;
   line-height: 1.3;

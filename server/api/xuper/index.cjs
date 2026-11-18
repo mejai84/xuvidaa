@@ -166,8 +166,8 @@ function createXuperApi(options = {}) {
     let item = allItems(catalog).find((entry) => String(entry.id) === id);
     if (!item) for (const series of list(catalog.series)) {
       for (const season of list(series.seasons)) {
-        item = list(season.episodes).find((entry) => String(entry.id) === id);
-        if (item) break;
+        const episode = list(season.episodes).find((entry) => String(entry.id) === id);
+        if (episode) { item = { ...episode, type: 'episode' }; break; }
       }
       if (item) break;
     }
@@ -236,15 +236,21 @@ function createXuperApi(options = {}) {
         const country = boundedString(input.country, 64, 'all');
         const page = integer(input.page, 1, 1000000);
         const pageSize = integer(input.pageSize, 40, 100);
+        const suppliesVod = (provider) => list(provider.sections).some((scope) => scope === 'movies' || scope === 'series');
+        const hasLibrarySources = section === 'videoteca' && providers.some((provider) =>
+          provider.configured && provider.id !== 'internet_archive' && suppliesVod(provider));
         const selected = providers.filter((provider) => (providerId === 'all' || provider.id === providerId) && !['pending_verification', 'official_link'].includes(provider.status) &&
-          (section === 'videoteca' ? provider.id === 'internet_archive' :
+          (section === 'videoteca' ?
+            (provider.configured && suppliesVod(provider) &&
+              (provider.id !== 'internet_archive' || providerId === 'internet_archive' || !hasLibrarySources)) :
             (provider.id !== 'internet_archive' || providerId !== 'all') &&
             (section !== 'home' || provider.includeOnHome !== false || providerId !== 'all') &&
-            (['home', 'kids', 'anime'].includes(section) ? (section === 'home' || list(provider.sections).some((scope) => scope === 'movies' || scope === 'series')) : list(provider.sections).includes(section))));
+            (['home', 'kids', 'anime'].includes(section) ? (section === 'home' || suppliesVod(provider)) : list(provider.sections).includes(section))));
         const loaded = await Promise.all(selected.map(async (provider) => {
           try {
             const catalog = await provider.load(false, { section, q: searchText, category, country, page, pageSize });
-            let pool = section === 'home' ? allItems(catalog) : list(catalog[section === 'videoteca' ? 'movies' : section]);
+            let pool = section === 'home' ? allItems(catalog) :
+              section === 'videoteca' ? list(catalog.movies).concat(list(catalog.series)) : list(catalog[section]);
             if (section === 'kids' || section === 'anime') {
               const matches = section === 'kids' ? /\b(?:infantil(?:es)?|kids|ninos|children|cartoons?|dibujos)\b/ : /\banime\b/;
               pool = list(catalog.movies).concat(list(catalog.series)).filter((item) => matches.test(normalize([item.category, item.groupTitle, item.genre].join(' '))));
@@ -292,13 +298,16 @@ function createXuperApi(options = {}) {
       if (!stream || !stream.streamUrl) return fail(res, 404, 'No hay una señal disponible para este contenido.', 'STREAM_NOT_FOUND');
       const restriction = playbackRestriction(stream, item.type);
       if (restriction) return fail(res, 415, restriction.message, restriction.code);
-      let url;
-      try { url = validateUrl(stream.streamUrl); }
-      catch (_) { return fail(res, 415, 'El origen de esta señal requiere una URL HTTPS pública y compatible del proveedor.', 'UNSUPPORTED_SOURCE'); }
-      const mime = mimeOf(stream, url);
       const live = item.type === 'live' || item.type === 'radio' || !!stream.live;
+      const legacyVodOrigin = !live && (item.type === 'movie' || item.type === 'episode') &&
+        provider.id === 'existing_private_m3u' ? provider.legacyVodOrigin : undefined;
+      let url;
+      try { url = validateUrl(stream.streamUrl, undefined, legacyVodOrigin); }
+      catch (_) { return fail(res, 415, 'El origen de esta señal requiere HTTPS o un origen VOD autorizado en el servidor.', 'UNSUPPORTED_SOURCE'); }
+      const mime = mimeOf(stream, url);
       const expiresAt = timestamp + (live ? 30 * 60 * 1000 : Math.min(6 * 3600 * 1000, Math.max(3600 * 1000, (number(stream.duration, 14400) + 1800) * 1000)));
-      const hosts = Array.from(new Set([url.hostname, ...list(provider.streamHosts)])).slice(0, 64);
+      const hosts = url.protocol === 'http:' ? [url.hostname] :
+        Array.from(new Set([url.hostname, ...list(provider.streamHosts)])).slice(0, 64);
       const headers = {};
       for (const [key, value] of Object.entries(stream.headers || {})) {
         if (/^(?:Referer|User-Agent)$/i.test(key) && typeof value === 'string' && value.length <= 2048 && !/[\r\n]/.test(value)) headers[key] = value;

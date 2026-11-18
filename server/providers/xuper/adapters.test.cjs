@@ -59,6 +59,37 @@ test('M3U stale fallback observes backoff even when the underlying provider does
   assert.equal(calls, 2, 'explicit refresh can validate again');
 });
 
+test('the existing M3U returns a saved catalog without waiting for its background refresh', async () => {
+  let reads = 0, refreshes = 0;
+  let completeRefresh;
+  const refreshGate = new Promise((resolve) => { completeRefresh = resolve; });
+  const provider = new M3uAdapter({
+    id: 'existing_private_m3u', name: 'M3U', url: 'https://catalog.example/list.m3u'
+  }, {
+    legacyVod: true,
+    provider: {
+      ttlMs: 60000, cacheFile: 'configured-shared-cache',
+      async readDiskCache() {
+        reads++;
+        return { movies: [{ id: 'cached', title: 'Catálogo guardado' }], fetchedAt: 1 };
+      },
+      async refresh() {
+        refreshes++;
+        await refreshGate;
+        return { movies: [{ id: 'fresh', title: 'Catálogo actualizado' }], fetchedAt: Date.now() };
+      }
+    }
+  });
+  const catalogs = await Promise.all([provider.load(), provider.load()]);
+  assert.equal(catalogs[0].stale, true);
+  assert.equal(catalogs[1].movies[0].id, 'cached');
+  assert.equal(reads, 1);
+  assert.equal(refreshes, 1);
+  completeRefresh();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(provider.lastResult.movies[0].id, 'fresh');
+});
+
 test('JSON parser rejects ambiguous IDs and bounded malformed shapes', () => {
   assert.throws(() => parseJsonCatalog({ movies: [{ id: 'http://localhost/secret', title: 'x' }] }));
   assert.throws(() => parseJsonCatalog({ movies: [{ id: 'same', title: 'x' }], radio: [{ id: 'same', title: 'y' }] }));

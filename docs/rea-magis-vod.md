@@ -11,7 +11,7 @@ Repositorio oficial: https://github.com/morluto/rea — **REA (Reverse Engineer 
 La herramienta publica un flujo MCP para inspección estática de aplicaciones Electron/JavaScript y APK Android. Para JavaScript/Electron, su documentación indica:
 
 ```sh
-npx -y rea-agents@latest analyze-javascript-application /ruta/absoluta/a/resources/app --json
+npx -y rea-agents@6.9.0 analyze-javascript-application /ruta/absoluta/a/resources/app --json
 ```
 
 Requisitos del lanzamiento consultado: Node 22.23.4+ (serie 22), 24.22.1+ (serie 24), o una versión de 26 admitida por la documentación oficial. Ejecutar **en estación de desarrollo aislada**, desde un directorio ajeno al repositorio; no instalar REA ni JADX en el VPS de producción. Verificar procedencia y versión del paquete antes de ejecutar. El analizador inspecciona estructura, módulos y rutas de ejecución; no concede acceso a servidores, contenido ni cuentas.
@@ -64,7 +64,13 @@ El módulo `web/xuper` y `server/api/xuper` ya exponen operaciones web de `catal
 
 ## Adaptador de metadatos y REA verificable (nueva implementación)
 
-La rama de investigación incluye `server/providers/xuper/magis-metadata.cjs`, que transforma **únicamente metadatos** con la estructura `recommendList`, `searchItemList` y `assetData/simpleProgramList` encontrada en el cliente público. **No implementa inicio de sesión en Magis, resolución de enlaces, DRM ni reproducción.** El adaptador rechaza obtener streams y no almacena credenciales del portal. Las películas y episodios se identifican como `Solo catálogo` en la interfaz.
+El [PR #17](https://github.com/mejai84/xuvidaa/pull/17), integrado en
+`hostinger-vps`, añade `server/providers/xuper/magis-metadata.cjs`. El adaptador
+transforma `recommendList`, `searchItemList` y `assetData/simpleProgramList` de
+una exportación JSON. Los episodios de la lista de detalle se agrupan actualmente
+en una sola temporada. Las películas y episodios se identifican como «Solo
+catálogo». El acceso a Magis y la autorización de reproducción requieren una
+integración separada con el proveedor.
 
 Se puede incorporar un **JSON exportado por un proveedor que haya autorizado ese uso**. Configuración de ejemplo para `XUPER_PROVIDERS_JSON` (solo en las variables privadas de Hostinger, nunca en Git):
 
@@ -82,14 +88,19 @@ Se puede incorporar un **JSON exportado por un proveedor que haya autorizado ese
 
 El formato solo procesa datos de catálogo. No crea una conexión directa con Magis; la dirección es ilustrativa. Si no existe un export permitido, el proveedor se mantiene sin configurar.
 
-Se agregó `.github/workflows/rea-magis-audit.yml` para intentar ejecutar **REA 6.9.0** en un runner GitHub Actions aislado, sobre la revisión pública fija `8c81b29550de72c4aa175f54f669597796bb73f4` del port comunitario. El workflow no usa contraseñas ni consulta el portal; tampoco publica el análisis crudo. Su presencia en Git **no acredita que haya ejecutado o pasado**: consultar estado en Actions.
+`.github/workflows/rea-magis-audit.yml` ejecutó **REA 6.9.0** con Node 24.22.1
+sobre la revisión pública fija `8c81b29550de72c4aa175f54f669597796bb73f4` del
+port webOS. El análisis y las pruebas con datos sintéticos pasaron en GitHub
+Actions para el commit `75e49ff`. El workflow conserva solo el resultado de
+validación en los logs. [Ejecución de REA](https://github.com/mejai84/xuvidaa/actions/runs/44199011238) ·
+[Validación web](https://github.com/mejai84/xuvidaa/actions/runs/44199011072)
 
 ## Estado y trazabilidad de este trabajo
 
-- Investigación estática previa: **existente** (informes y código fuente).
-- Ejecución nueva de REA en esta sesión: **no realizada**. La herramienta no está instalada; el intento de consulta de `rea-agents` al registro npm falló por `EAI_AGAIN`, y el runtime local Node era 22.16.0, por debajo del mínimo observado en la documentación oficial.
-- Conexión real con Magis: **no ejecutada**.
-- API Magis autorizada: **no verificada**.
-- Producción Hostinger: **sin cambios**.
+- La [auditoría del instalador](xuper-reference-audit.md) corresponde al portable
+  de Windows. La ejecución de Actions citada corresponde al port webOS.
+- El acceso efectivo al portal y el uso de un feed autorizado real siguen
+  pendientes de verificar.
+- El estado observado en Hostinger está en la [guía del módulo](xuper-premium.md#estado-verificado-el-18-de-noviembre-de-2026).
 
 El agente que ejecute la investigación debe adjuntar su versión exacta de REA, comandos, hashes, evidencias saneadas, pruebas y resultados, sin datos de sesión, contraseñas o medios protegidos.

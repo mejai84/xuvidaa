@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0b0c10">
-  <title>Xuper Premium · TVVIDAA</title>
+  <meta name="theme-color" content="#080d18">
+  <title>TVVIDAA · Tu televisión</title>
   <link rel="stylesheet" href="/xuper/app.css">
   <script defer src="/xuper/hls.min.js"></script>
   <script defer src="/xuper/app.js"></script>
@@ -12,8 +12,8 @@
 <body>
   <a class="skip-link" href="#main">Ir al contenido</a>
   <header class="topbar">
-    <div class="topbar-left"><a class="button quiet return-link" href="/">Volver</a><a class="button quiet history-link" href="#history">Historial</a></div>
-    <a class="brand" href="/xuper/" aria-label="Xuper Premium, inicio"><span>Xuper Premium</span><strong>TVVIDAA</strong></a>
+    <a class="brand" href="/#home" aria-label="TVVIDAA, inicio"><span class="brand-wordmark">TV<strong>VIDAA</strong></span><span class="brand-caption">Tu televisión</span></a>
+    <div class="topbar-left"><a class="button quiet return-link" href="/tv/" aria-label="Vista clásica">Vista clásica</a><a class="button quiet history-link" href="#history">Historial</a></div>
     <div class="topbar-actions">
       <a class="notify-button" href="#home" id="header-search" aria-label="Buscar contenido"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="6"></circle><path d="m15 15 6 6"></path></svg></a>
       <a class="notify-button" href="#settings" aria-label="Configuración"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6l1 3 3 1 2 3-2 3v4l-4 1-2 3-4-2-4-1v-4l-2-3 2-4 4-1z"></path><circle cx="12" cy="12" r="3"></circle></svg></a>
@@ -22,23 +22,23 @@
     </div>
   </header>
   <div class="app-shell">
-    <nav id="navigation" class="navigation" aria-label="Xuper Premium"></nav>
+    <nav id="navigation" class="navigation" aria-label="TVVIDAA"></nav>
     <main id="main" tabindex="-1">
       <div id="announcement" class="announcement" role="status" aria-live="polite"></div>
       <div id="view"></div>
-      <footer class="page-footer"><span>Tu biblioteca, en una sola pantalla.</span><span>Flechas para navegar · OK para elegir · Atrás para volver</span></footer>
+      <footer class="page-footer"><span>TVVIDAA · Tu biblioteca, en una sola pantalla.</span><span>Flechas para navegar · OK para elegir · Atrás para volver</span></footer>
     </main>
   </div>
   <section id="login" class="overlay" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
     <form id="login-form" class="login-panel">
-      <span class="brand-mark" aria-hidden="true">X</span>
-      <h1 id="login-title">Entra a Xuper Premium</h1>
-      <p>Usa la misma clave de acceso de TVVIDAA.</p>
+      <span class="brand-wordmark">TV<strong>VIDAA</strong></span>
+      <h1 id="login-title">Entra a TVVIDAA</h1>
+      <p>Tu catálogo y tus favoritos te esperan.</p>
       <label for="password">Clave de acceso</label>
       <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
       <p id="login-error" class="error-text" role="alert"></p>
       <button class="button primary" type="submit">Entrar</button>
-      <a href="/">Volver a TVVIDAA</a>
+      <a href="/tv/">Volver a la vista clásica</a>
     </form>
   </section>
   <section id="detail" class="overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title" hidden><div class="detail-panel" id="detail-content"></div></section>
@@ -57,6 +57,6 @@
     </div>
     <p class="player-help">La compatibilidad depende del formato y del televisor. Atrás cierra el reproductor.</p>
   </section>
-  <noscript><div class="noscript">Activa JavaScript para usar Xuper Premium.</div></noscript>
+  <noscript><div class="noscript">Activa JavaScript para usar TVVIDAA.</div></noscript>
 </body>
 </html>
