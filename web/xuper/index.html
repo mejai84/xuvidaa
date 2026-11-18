@@ -7,6 +7,7 @@
   <title>Xuper Premium · TVVIDAA</title>
   <link rel="stylesheet" href="/xuper/app.css">
   <script defer src="/xuper/hls.min.js"></script>
+  <script defer src="/xuper/episodes.js"></script>
   <script defer src="/xuper/app.js"></script>
 </head>
 <body>
@@ -50,11 +51,34 @@
       <button id="player-retry" class="button" type="button" hidden>Reintentar</button>
       <button id="channel-previous" class="button" type="button" hidden>Canal anterior</button>
       <button id="channel-next" class="button" type="button" hidden>Canal siguiente</button>
+      <button id="seek-back" class="button" type="button" hidden>−10 s</button>
+      <button id="seek-forward" class="button" type="button" hidden>+10 s</button>
+      <button id="episode-picker-toggle" class="button" type="button" hidden aria-expanded="false" aria-controls="episode-picker">Episodios</button>
+      <button id="next-episode" class="button" type="button" hidden>Siguiente episodio</button>
       <button id="player-fullscreen" class="button" type="button">Pantalla completa</button>
+      <label id="speed-label" hidden>Velocidad
+        <select id="playback-speed" aria-label="Velocidad de reproducción">
+          <option value="0.75">0,75×</option>
+          <option value="1" selected>Normal</option>
+          <option value="1.25">1,25×</option>
+          <option value="1.5">1,5×</option>
+          <option value="2">2×</option>
+        </select>
+      </label>
       <label id="quality-label" hidden>Calidad <select id="quality"></select></label>
       <label id="audio-label" hidden>Audio <select id="audio-track"></select></label>
       <label id="subtitle-label" hidden>Subtítulos <select id="subtitle-track"></select></label>
     </div>
+    <section id="episode-picker" class="episode-picker" role="dialog" aria-modal="true" aria-label="Selector de episodios" hidden>
+      <div class="episode-picker-heading">
+        <h3>Temporadas y episodios</h3>
+        <button id="episode-picker-close" class="button quiet" type="button">Cerrar episodios</button>
+      </div>
+      <label for="player-season">Temporada
+        <select id="player-season" aria-label="Seleccionar temporada"></select>
+      </label>
+      <div id="player-episodes" class="player-episode-list"></div>
+    </section>
     <p class="player-help">La compatibilidad depende del formato y del televisor. Atrás cierra el reproductor.</p>
   </section>
   <noscript><div class="noscript">Activa JavaScript para usar Xuper Premium.</div></noscript>

@@ -210,11 +210,97 @@
   function detailNotice(message) { var n = byId('detail-message'); if (n) n.textContent = text(message, 2000); }
   function renderEpisodes(parent, season, series) { clear(parent); (season.episodes || []).forEach(function (episode, index) { var item = { id: episode.id, providerId: series.providerId, title: episode.title || 'Episodio ' + (episode.number || index + 1), type: 'series', category: series.category, year: series.year, playbackRestriction: episode.playbackRestriction }; var row = node('article', 'episode'); var copy = node('div'); copy.appendChild(node('h3', '', item.title)); var record = progress(item); copy.appendChild(node('p', '', record ? 'Visto hasta ' + durationLabel(record.position) : 'Episodio ' + (episode.number || index + 1))); var restriction = confirmedRestriction(item); if (restriction) copy.appendChild(node('p', '', text(restriction.message, 700))); row.appendChild(copy); row.appendChild(playAction(item, series, record && record.position > 10 ? 'Continuar' : 'Reproducir', 'quiet')); parent.appendChild(row); }); if (!(season.episodes || []).length) parent.appendChild(node('p', '', 'No hay episodios en esta temporada.')); }
 
+
+  function episodeEntries() {
+    return state.playing && state.playing.series && window.XuperEpisodes
+      ? window.XuperEpisodes.listEpisodes(state.playing.episodeSeasons) : [];
+  }
+  function episodeItem(entry, series) {
+    return { id: entry.id, providerId: series.providerId, title: entry.title, type: 'series',
+      category: series.category, year: series.year, playbackRestriction: entry.playbackRestriction };
+  }
+  function closeEpisodePicker(restoreFocus) {
+    byId('episode-picker').hidden = true;
+    byId('episode-picker-toggle').setAttribute('aria-expanded', 'false');
+    if (restoreFocus !== false && !byId('episode-picker-toggle').hidden) byId('episode-picker-toggle').focus();
+  }
+  function renderPlayerEpisodes() {
+    var entries = episodeEntries(), seasons = state.playing && state.playing.episodeSeasons || [];
+    var selector = byId('player-season'), container = byId('player-episodes');
+    clear(selector); clear(container);
+    if (!entries.length || !state.playing || !state.playing.series) return;
+    var currentId = state.playing.item.id, selectedIndex = 0;
+    for (var i = 0; i < entries.length; i++) if (entries[i].id === currentId) { selectedIndex = entries[i].seasonIndex; break; }
+    seasons.forEach(function (season, index) {
+      if (!season || !Array.isArray(season.episodes) || !entries.some(function (entry) { return entry.seasonIndex === index; })) return;
+      option(selector, text(season.title || ('Temporada ' + (season.number || index + 1)), 100), String(index));
+    });
+    function showSeason() {
+      clear(container);
+      var seasonIndex = Number(selector.value), series = state.playing.series;
+      entries.filter(function (entry) { return entry.seasonIndex === seasonIndex; }).forEach(function (entry) {
+        var item = episodeItem(entry, series), restricted = confirmedRestriction(item);
+        var label = (entry.number || '') + '. ' + entry.title + (entry.id === currentId ? ' · Reproduciendo' : '');
+        var choice = button(label, function () { closeEpisodePicker(false); play(item, series); }, 'episode-choice');
+        choice.setAttribute('aria-current', entry.id === currentId ? 'true' : 'false');
+        if (restricted) { choice.disabled = true; choice.title = text(restricted.message, 700); }
+        container.appendChild(choice);
+      });
+    }
+    selector.value = String(selectedIndex);
+    if (!selector.value && selector.options.length) selector.selectedIndex = 0;
+    selector.onchange = showSeason;
+    showSeason();
+  }
+  function updatePlayerEpisodeControls() {
+    var entries = episodeEntries();
+    var available = entries.length > 0;
+    byId('episode-picker-toggle').hidden = !available;
+    var next = available && window.XuperEpisodes.adjacentEpisode(state.playing.episodeSeasons, state.playing.item.id, 1);
+    byId('next-episode').hidden = !next;
+    byId('next-episode').disabled = !!(next && confirmedRestriction(episodeItem(next, state.playing.series)));
+    if (next && byId('next-episode').disabled) byId('next-episode').title = 'El siguiente episodio necesita un formato compatible.';
+    else byId('next-episode').removeAttribute('title');
+  }
+  function toggleEpisodePicker() {
+    if (byId('episode-picker-toggle').hidden) return;
+    if (!byId('episode-picker').hidden) return closeEpisodePicker();
+    renderPlayerEpisodes();
+    byId('episode-picker').hidden = false;
+    byId('episode-picker-toggle').setAttribute('aria-expanded', 'true');
+    byId('player-season').focus();
+  }
+  function playNextEpisode() {
+    if (!state.playing || !state.playing.series || !window.XuperEpisodes) return;
+    var next = window.XuperEpisodes.adjacentEpisode(state.playing.episodeSeasons, state.playing.item.id, 1);
+    if (!next) return playerStatus('No hay más episodios disponibles en esta serie.');
+    var item = episodeItem(next, state.playing.series);
+    if (confirmedRestriction(item)) return playerStatus('El siguiente episodio necesita una versión HLS o MP4 compatible.', true);
+    closeEpisodePicker(false);
+    play(item, state.playing.series);
+  }
+  function seekBy(seconds) {
+    if (!state.playing || !state.playing.ready || !isFinite(video.duration) || video.duration <= 0) return;
+    try { video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds)); }
+    catch (_) { playerStatus('No se puede avanzar o retroceder en esta señal.'); }
+  }
+
   function destroyMedia() { if (state.hls) { state.hls.destroy(); state.hls = null; } video.pause(); video.removeAttribute('src'); while (video.firstChild) video.removeChild(video.firstChild); video.load(); if (state.retryTimer) window.clearTimeout(state.retryTimer); state.retryTimer = null; }
-  function closePlayer() { if (byId('player').hidden) return; writeProgress(true); state.playSeq++; state.playing = null; destroyMedia(); byId('player').hidden = true; if (byId('detail').hidden && byId('login').hidden) setBackgroundInert(false); else if (!byId('detail').hidden) { byId('detail').removeAttribute('aria-hidden'); var close = byId('detail').querySelector('button'); if (close) close.focus(); } if (document.fullscreenElement && document.exitFullscreen) { var pending = document.exitFullscreen(); if (pending && pending.catch) pending.catch(function () {}); } }
+  function closePlayer() { if (byId('player').hidden) return; closeEpisodePicker(false); writeProgress(true); state.playSeq++; state.playing = null; destroyMedia(); byId('player').hidden = true; if (byId('detail').hidden && byId('login').hidden) setBackgroundInert(false); else if (!byId('detail').hidden) { byId('detail').removeAttribute('aria-hidden'); var close = byId('detail').querySelector('button'); if (close) close.focus(); } if (document.fullscreenElement && document.exitFullscreen) { var pending = document.exitFullscreen(); if (pending && pending.catch) pending.catch(function () {}); } }
   function playerStatus(message, error) { byId('player-status').textContent = text(message, 700); byId('player-status').className = error ? 'error-text' : ''; }
   function play(item, series, retrying) {
-    if (!validItem(item)) return; var restriction = confirmedRestriction(item); if (restriction) { detailNotice(restriction.message); return; } writeProgress(true); var seq = ++state.playSeq; var selectedSignal = retrying && state.playing ? state.playing.signal : state.detailItem && itemKey(state.detailItem) === itemKey(item) ? state.selectedSignal || '0' : '0'; destroyMedia(); if (!retrying) state.retries = 0; state.playing = { item: safeItem(item), series: series ? safeItem(series) : null, signal: selectedSignal, ready: false, failed: false, canRetry: false }; byId('player').hidden = false; byId('detail').setAttribute('aria-hidden', 'true'); setBackgroundInert(true); byId('player').className = 'overlay player-overlay' + ((item.type === 'radio' || item.type === 'music') ? ' audio-mode' : ''); byId('player-title').textContent = series ? series.title + ' — ' + item.title : item.title; playerStatus('Preparando reproducción…'); byId('player-toggle').disabled = true; byId('player-retry').hidden = true; ['quality-label', 'audio-label', 'subtitle-label'].forEach(function (id) { byId(id).hidden = true; }); byId('channel-previous').hidden = byId('channel-next').hidden = item.type !== 'live' || state.liveItems.length < 2; byId('player-close').focus();
+    if (!validItem(item)) return; var restriction = confirmedRestriction(item); if (restriction) { detailNotice(restriction.message); return; }
+    var episodeSeasons = [];
+    if (series && state.detailItem && itemKey(state.detailItem) === itemKey(series)) episodeSeasons = state.seasons;
+    else if (series && state.playing && state.playing.series && itemKey(state.playing.series) === itemKey(series)) episodeSeasons = state.playing.episodeSeasons || [];
+    writeProgress(true); var seq = ++state.playSeq; var selectedSignal = retrying && state.playing ? state.playing.signal : state.detailItem && itemKey(state.detailItem) === itemKey(item) ? state.selectedSignal || '0' : '0'; destroyMedia(); if (!retrying) state.retries = 0; state.playing = { item: safeItem(item), series: series ? safeItem(series) : null, episodeSeasons: episodeSeasons, signal: selectedSignal, ready: false, failed: false, canRetry: false }; byId('player').hidden = false; byId('detail').setAttribute('aria-hidden', 'true'); setBackgroundInert(true); byId('player').className = 'overlay player-overlay' + ((item.type === 'radio' || item.type === 'music') ? ' audio-mode' : ''); byId('player-title').textContent = series ? series.title + ' — ' + item.title : item.title;
+    closeEpisodePicker(false);
+    var isVod = item.type !== 'live' && item.type !== 'radio' && item.type !== 'music';
+    byId('seek-back').hidden = byId('seek-forward').hidden = byId('speed-label').hidden = !isVod;
+    video.playbackRate = 1;
+    byId('playback-speed').value = '1';
+    updatePlayerEpisodeControls();
+    playerStatus('Preparando reproducción…'); byId('player-toggle').disabled = true; byId('player-retry').hidden = true; ['quality-label', 'audio-label', 'subtitle-label'].forEach(function (id) { byId(id).hidden = true; }); byId('channel-previous').hidden = byId('channel-next').hidden = item.type !== 'live' || state.liveItems.length < 2; byId('player-close').focus();
     api('resolve', { providerId: item.providerId, id: item.id, signal: selectedSignal }).then(function (data) {
       if (seq !== state.playSeq) return; var source = relayUrl(data.mediaUrl || data.url); if (!source) throw requestError('El proveedor no devolvió una fuente de reproducción segura.', 'UNSUPPORTED_SOURCE'); if (/matroska|x-msvideo|avi/i.test(data.mime || '')) throw requestError('Este formato necesita un servicio de conversión compatible. Todavía no está habilitado.', 'UNSUPPORTED_FORMAT');
       state.playing.expiry = Number(data.expiresAt || data.mediaExpiresAt) || 0;
@@ -243,7 +329,7 @@
   function setupHlsTracks(hls) { var quality = byId('quality'); clear(quality); option(quality, 'Automática', '-1'); (hls.levels || []).forEach(function (level, index) { option(quality, level.height ? level.height + 'p' : 'Señal ' + (index + 1), String(index)); }); byId('quality-label').hidden = !hls.levels || hls.levels.length < 2; var audio = byId('audio-track'); clear(audio); (hls.audioTracks || []).forEach(function (track, index) { option(audio, track.name || track.lang || 'Audio ' + (index + 1), String(index)); }); byId('audio-label').hidden = !hls.audioTracks || hls.audioTracks.length < 2; if (hls.subtitleTracks && hls.subtitleTracks.length) { var sub = byId('subtitle-track'); clear(sub); option(sub, 'Desactivados', '-1'); hls.subtitleTracks.forEach(function (track, index) { option(sub, track.name || track.lang || 'Subtítulo ' + (index + 1), String(index)); }); sub.value = '-1'; byId('subtitle-label').hidden = false; } }
   function addSubtitles(tracks) { if (!tracks.length) return; var sub = byId('subtitle-track'); clear(sub); option(sub, 'Desactivados', '-1'); tracks.forEach(function (entry, index) { var src = relayUrl(entry.url || entry.src); if (!src) return; var track = node('track'); track.kind = 'subtitles'; track.label = text(entry.label || entry.name || 'Subtítulo ' + (index + 1), 100); var language = entry.language || entry.lang || ''; track.srclang = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(language) ? language : 'es'; track.src = src; video.appendChild(track); option(sub, track.label, String(video.children.length - 1)); }); sub.value = '-1'; byId('subtitle-label').hidden = sub.options.length < 2; }
   function changeChannel(offset) { if (!state.playing || !state.liveItems.length) return; var key = itemKey(state.playing.item); var index = -1; for (var i = 0; i < state.liveItems.length; i++) if (itemKey(state.liveItems[i]) === key) index = i; index = (index + offset + state.liveItems.length) % state.liveItems.length; play(state.liveItems[index]); }
-  function currentOverlay() { if (!byId('login').hidden) return byId('login'); if (!byId('player').hidden) return byId('player'); if (!byId('detail').hidden) return byId('detail'); return null; }
+  function currentOverlay() { if (!byId('login').hidden) return byId('login'); if (!byId('player').hidden) return !byId('episode-picker').hidden ? byId('episode-picker') : byId('player'); if (!byId('detail').hidden) return byId('detail'); return null; }
   function visibleFocusables(root) { return Array.prototype.slice.call((root || document).querySelectorAll('a[href],button,input,select,video,[tabindex="0"]')).filter(function (el) { if (el.disabled || el.hidden || el.getAttribute('aria-hidden') === 'true') return false; var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && window.getComputedStyle(el).visibility !== 'hidden'; }); }
   function moveFocus(direction) {
     var root = currentOverlay() || document; var candidates = visibleFocusables(root); var active = document.activeElement; var from = active && active.getBoundingClientRect(); if (!from || !from.width || candidates.indexOf(active) < 0) { if (candidates[0]) candidates[0].focus(); return; }
@@ -254,7 +340,7 @@
   function handleKey(event) {
     if (event.altKey || event.ctrlKey || event.metaKey) return; var code = event.keyCode || event.which; var key = event.key; var active = document.activeElement; var editing = active && matches(active, 'input,textarea,select'); var overlay = currentOverlay();
     if (key === 'Tab' && overlay) { var items = visibleFocusables(overlay); if (items.length && (event.shiftKey && active === items[0] || !event.shiftKey && active === items[items.length - 1])) { event.preventDefault(); (event.shiftKey ? items[items.length - 1] : items[0]).focus(); } return; }
-    if (key === 'Escape' || code === 10009 || code === 461 || (code === 8 && !editing)) { event.preventDefault(); if (!byId('player').hidden) closePlayer(); else if (!byId('detail').hidden) closeDetail(); else if (!byId('login').hidden) window.location.href = '/'; else if (state.section !== 'home') navigate('home'); else window.location.href = '/'; return; }
+    if (key === 'Escape' || code === 10009 || code === 461 || (code === 8 && !editing)) { event.preventDefault(); if (!byId('episode-picker').hidden) closeEpisodePicker(); else if (!byId('player').hidden) closePlayer(); else if (!byId('detail').hidden) closeDetail(); else if (!byId('login').hidden) window.location.href = '/'; else if (state.section !== 'home') navigate('home'); else window.location.href = '/'; return; }
     if (!editing && (code >= 37 && code <= 40)) { event.preventDefault(); if (active === video && !byId('player').hidden && (code === 37 || code === 39) && state.playing && state.playing.item.type !== 'live') { if (isFinite(video.duration)) video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + (code === 37 ? -10 : 10))); } else moveFocus({ 37: 'left', 38: 'up', 39: 'right', 40: 'down' }[code]); return; }
     if (!byId('player').hidden && (code === 179 || code === 415 || code === 19 || key === 'MediaPlayPause' || (key === ' ' && active === video))) { event.preventDefault(); if (code === 415) beginPlayback(); else if (code === 19) video.pause(); else if (video.paused) beginPlayback(); else video.pause(); }
     if (!byId('player').hidden && (code === 427 || code === 428)) { event.preventDefault(); changeChannel(code === 427 ? 1 : -1); }
@@ -267,11 +353,21 @@
   function updateClock() { var now = new Date(); byId('header-clock').textContent = (now.getHours() < 10 ? '0' : '') + now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes(); }
   updateClock(); window.setInterval(updateClock, 30000);
   byId('login-form').addEventListener('submit', function (event) { event.preventDefault(); var password = byId('password'); var submit = this.querySelector('button'); submit.disabled = true; byId('login-error').textContent = ''; window.fetch('/api/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: password.value }) }).then(function (response) { return response.json().then(function (data) { if (!response.ok || !data.authenticated) throw new Error(data.error || 'La clave no es correcta.'); password.value = ''; byId('login').hidden = true; setBackgroundInert(false); return bootstrap(); }); }).catch(function (error) { byId('login-error').textContent = error.message; password.focus(); }).then(function () { submit.disabled = false; }); });
-  byId('player-close').addEventListener('click', closePlayer); byId('player-toggle').addEventListener('click', function () { if (video.paused) beginPlayback(); else video.pause(); }); byId('player-retry').addEventListener('click', retryPlayback); byId('channel-previous').addEventListener('click', function () { changeChannel(-1); }); byId('channel-next').addEventListener('click', function () { changeChannel(1); });
+  byId('player-close').addEventListener('click', closePlayer); byId('player-toggle').addEventListener('click', function () { if (video.paused) beginPlayback(); else video.pause(); }); byId('player-retry').addEventListener('click', retryPlayback);
+  byId('episode-picker-toggle').addEventListener('click', toggleEpisodePicker);
+  byId('episode-picker-close').addEventListener('click', function () { closeEpisodePicker(); });
+  byId('next-episode').addEventListener('click', playNextEpisode);
+  byId('seek-back').addEventListener('click', function () { seekBy(-10); });
+  byId('seek-forward').addEventListener('click', function () { seekBy(10); });
+  byId('playback-speed').addEventListener('change', function () {
+    if (!state.playing || byId('speed-label').hidden) return;
+    var speed = Number(this.value);
+    if ([0.75, 1, 1.25, 1.5, 2].indexOf(speed) !== -1) video.playbackRate = speed;
+  }); byId('channel-previous').addEventListener('click', function () { changeChannel(-1); }); byId('channel-next').addEventListener('click', function () { changeChannel(1); });
   byId('player-fullscreen').addEventListener('click', function () { var target = byId('player'); var method = target.requestFullscreen || target.webkitRequestFullscreen; if (method) { var result = method.call(target); if (result && result.catch) result.catch(function () { playerStatus('Usa la opción de pantalla completa del navegador.'); }); } else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); else playerStatus('Este navegador no permite activar pantalla completa.'); });
   byId('quality').addEventListener('change', function () { if (state.hls) state.hls.currentLevel = Number(this.value); }); byId('audio-track').addEventListener('change', function () { if (state.hls) state.hls.audioTrack = Number(this.value); else if (video.audioTracks) for (var i = 0; i < video.audioTracks.length; i++) video.audioTracks[i].enabled = i === Number(this.value); }); byId('subtitle-track').addEventListener('change', function () { if (state.hls && state.hls.subtitleTracks.length) { state.hls.subtitleTrack = Number(this.value); state.hls.subtitleDisplay = Number(this.value) >= 0; } else for (var i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = i === Number(this.value) ? 'showing' : 'disabled'; });
   video.addEventListener('loadedmetadata', function () { if (!state.playing) return; var record = progress(state.playing.item); if (record && record.position > 10 && isFinite(video.duration) && record.position < video.duration - 15) { try { video.currentTime = record.position; } catch (_) {} } if (!state.hls && video.audioTracks && video.audioTracks.length > 1) { var select = byId('audio-track'); clear(select); for (var i = 0; i < video.audioTracks.length; i++) option(select, video.audioTracks[i].label || video.audioTracks[i].language || 'Audio ' + (i + 1), String(i)); byId('audio-label').hidden = false; } });
-  video.addEventListener('playing', function () { if (!state.playing || state.playing.failed) return; playerStatus(''); byId('player-retry').hidden = true; }); video.addEventListener('waiting', function () { if (state.playing && !state.playing.failed) playerStatus('Cargando señal…'); }); video.addEventListener('stalled', function () { if (state.playing && !state.playing.failed) playerStatus('La señal tarda en responder.'); }); video.addEventListener('pause', function () { writeProgress(true); }); video.addEventListener('timeupdate', function () { writeProgress(false); }); video.addEventListener('ended', function () { writeProgress(true); playerStatus('Reproducción terminada.'); });
+  video.addEventListener('playing', function () { if (!state.playing || state.playing.failed) return; playerStatus(''); byId('player-retry').hidden = true; }); video.addEventListener('waiting', function () { if (state.playing && !state.playing.failed) playerStatus('Cargando señal…'); }); video.addEventListener('stalled', function () { if (state.playing && !state.playing.failed) playerStatus('La señal tarda en responder.'); }); video.addEventListener('pause', function () { writeProgress(true); }); video.addEventListener('timeupdate', function () { writeProgress(false); }); video.addEventListener('ended', function () { writeProgress(true); playerStatus(!byId('next-episode').hidden && !byId('next-episode').disabled ? 'Reproducción terminada. Pulsa Siguiente episodio para continuar.' : 'Reproducción terminada.'); });
   video.addEventListener('error', function () { if (!state.playing || state.playing.failed || !video.getAttribute('src')) return; var code = video.error && video.error.code; playbackError(requestError(code === 3 || code === 4 ? 'La fuente o sus códecs no son compatibles con este navegador.' : 'La conexión con la señal se interrumpió.', code === 3 ? 'UNSUPPORTED_FORMAT' : code === 4 ? 'UNSUPPORTED_SOURCE' : 'MEDIA_NETWORK_ERROR')); });
   window.addEventListener('hashchange', function () { if (state.boot) loadSection(window.location.hash.slice(1)); }); document.addEventListener('keydown', handleKey); window.addEventListener('pagehide', function () { writeProgress(true); stopHero(); }); document.addEventListener('visibilitychange', function () { if (document.hidden) writeProgress(true); });
   window.fetch('/api/session', { credentials: 'same-origin' }).then(function (response) { if (!response.ok) throw new Error(); return response.json(); }).then(function (data) { if (data.authenticated) bootstrap(); else showLogin(); }).catch(function () { mountProfiles(); mountNav(); empty(view, 'No hay conexión con TVVIDAA', 'Comprueba tu conexión y vuelve a cargar la página.'); });

@@ -10,6 +10,38 @@ licencias y límites. La interfaz reproduce la distribución y los colores del
 desktop con código propio y sin reutilizar su arte excluido. No se afirma
 equivalencia completa con Electron ni comparación píxel a píxel de su ejecución.
 
+## Código abierto y alcance de la compatibilidad
+
+El repositorio de referencia [cristianco7/XUPER-HYDRA-PORT-WEBOS](https://github.com/cristianco7/XUPER-HYDRA-PORT-WEBOS)
+declara licencia **MIT** para su **código fuente original**, bajo los términos y
+excepciones de su archivo `LICENSE`. Los avisos de derechos de autor deben
+conservarse al copiar o distribuir partes sustanciales de ese software.
+
+**La licencia MIT no abarca** la marca XuperTV, su logotipo, recursos gráficos
+originales, el binario FFmpeg GPL ni el contenido audiovisual o los servicios
+contactados en tiempo de ejecución. Tampoco constituye permiso para reutilizar
+tokens, licencias DRM, sesiones o credenciales de servidores privados.
+
+Las funciones web de TVVIDAA se implementan con código independiente y proveedores
+autorizados; no se distribuyen recursos protegidos de Xuper ni se emulan accesos
+a Magis sin autorización. La similitud de interfaz o comportamiento no garantiza
+que haya catálogo o reproducción premium.
+
+### Mejora de reproductor y series (rama de desarrollo)
+
+- **Selector de episodios dentro del reproductor:** permite navegar temporadas y
+  escoger episodios sin regresar a la ficha, con foco apto para mando y botón Atrás.
+- **Siguiente episodio:** avanza al siguiente elemento del catálogo, incluso al
+  cambiar de temporada; no inventa episodios ni salta a un título distinto.
+- **Saltos de 10 segundos y velocidad 0,75×–2×** en películas y episodios VOD
+  cuando el navegador ofrece reproducción con duración finita.
+- Las señales incompatibles mantienen su mensaje de restricción en el selector;
+  el navegador no intenta reproducir deliberadamente MKV/AVI no soportado.
+- Pruebas unitarias del orden, límites de temporadas, duplicados y cambios entre
+  temporadas; validaciones de sintaxis y smoke HTTP de módulos protegidos en CI.
+- **Pendiente:** pruebas de CI de la rama y reproducción física en Hisense VIDAA;
+  el código no se considera desplegado por estar en GitHub.
+
 ## Funciones y límites
 
 - Catálogos reales de películas, series, canales, radio y música, con búsqueda,

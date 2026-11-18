@@ -91,6 +91,8 @@ jobs:
             -H 'Content-Type: application/json' -d '{}' \
             http://127.0.0.1:38590/api/ping | grep '"service":"TVVIDAA-web"'
           curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' http://127.0.0.1:38590/xuper/ | grep '<title>Xuper Premium'
+          curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' http://127.0.0.1:38590/xuper/episodes.js | grep 'function adjacentEpisode'
+          curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' http://127.0.0.1:38590/xuper/app.js | grep 'function renderPlayerEpisodes'
           curl -fsS -H "Cookie: $cookie" -H 'Host: tv.example.test' http://127.0.0.1:38590/api/xuper/bootstrap | grep '"returnValue":true'
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: tv.example.test' \
             http://127.0.0.1:38590/js/access.js)" = "404"

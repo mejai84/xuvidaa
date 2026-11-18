@@ -13,7 +13,9 @@ Repositorio `mejai84/xuvidaa`, rama de despliegue reportada `hostinger-vps`, dir
 - Media relay: `server/api/media.cjs` y `server/api/lib/media-token.js`.
 - Fuentes: `server/providers/iptvOrgProvider.cjs` y `server/providers/m3uProvider.cjs`.
 - Docker: `deploy/hostinger`.
-- **No usar** Luna, LG webOS, Magis, XuperTV, proxy de evasión de bloqueos ni FFmpeg local.
+- Módulo `Xuper Premium` **web** ya integrado en `web/xuper/`, `server/api/xuper/` y `server/providers/xuper/`. La interfaz y navegación se pueden mejorar con implementaciones compatibles y código MIT respetando sus condiciones.
+- **No utilizar** runtime Luna/LG webOS, sesiones o licencias privadas de Magis/Xuper sin autorización, proxies para eludir bloqueos ni FFmpeg local no validado. El código MIT de referencia no concede derechos sobre películas, series, marcas, assets o servicios externos.
+- Las mejoras del reproductor deben respetar las URLs opacas del relay y mantener la seguridad de `/api/media`. Ver `docs/xuper-premium.md` y `docs/PRODUCTION.md`.
 - Antes de la limpieza, el código histórico quedó respaldado en `archive/xuper-webos-20261111`.
 
 ## Investigación de Magis/Xuper mediante REA
