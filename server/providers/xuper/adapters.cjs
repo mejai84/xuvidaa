@@ -243,7 +243,7 @@ class JsonAdapter {
         const headers = this.config.authorization ? { Authorization: this.config.authorization } : {};
         const content = await this.fetch(url.href, { allowedHosts: [url.hostname], maxBytes: 16 * 1024 * 1024, headers });
         const payload = JSON.parse(content);
-        this.cached = parseJsonCatalog(this.format === 'magis-metadata' ? normalizeMagisMetadata(payload) : payload);
+        this.cached = parseJsonCatalog(this.format === 'magis-metadata' ? normalizeMagisMetadata(payload, this.secrets) : payload);
         this.status = 'connected';
         this.nextAttemptAt = 0;
         this.message = this.format === 'magis-metadata' ? 'Solo metadatos autorizados; sin reproducción habilitada.' : '';
