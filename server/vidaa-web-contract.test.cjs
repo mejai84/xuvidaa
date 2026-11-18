@@ -25,10 +25,11 @@ test('frontend remains independent of webOS services and links only to the isola
   assert.ok(!fs.existsSync(path.join(root, 'tools/vendor/ffmpeg-7.0.2-armhf-static.tar.xz')));
 });
 
-test('premium entry redirects to the module only after the existing session opens', () => {
+test('login opens the unified home and the classic view keeps the remote shortcut', () => {
   const entry = fs.readFileSync(path.join(root, 'web/js/premium-entry.js'), 'utf8');
   assert.match(entry, /getElementById\('shell'\)/);
-  assert.match(entry, /window\.location\.replace\('\/xuper\/'\)/);
+  assert.match(app, /window\.location\.replace\('\/xuper\/'\)/);
+  assert.match(entry, /window\.location\.assign\('\/xuper\/'\)/);
   assert.match(entry, /keyCode \|\| event\.which\) === 405/);
 });
 
@@ -63,7 +64,7 @@ test('startup splash is viewport centered and hides login until session is check
   assert.match(css, /\.splash-screen\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
   assert.match(app, /function showLogin\(message\)\s*\{[\s\S]*?show\('splash', false\)/);
   assert.match(app, /xhr\.ontimeout = function \(\) \{ showLogin/);
-  assert.match(app, /function enter\(\)\s*\{\s*show\('splash', false\)/);
+  assert.match(app, /function enter\(\)\s*\{[\s\S]*?show\('splash', false\)/);
 });
 
 test('catalog shows and clears its centered loading indicator', () => {

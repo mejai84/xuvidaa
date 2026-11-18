@@ -1,8 +1,10 @@
 'use strict';
 
+const http = require('node:http');
 const https = require('node:https');
 const dns = require('node:dns').promises;
 const net = require('node:net');
+const { allowedHttpOrigin } = require('../../api/lib/vod-origin-policy.cjs');
 
 // Catalog imports are a server-side boundary. Resolve once, reject the entire
 // answer if it contains a private address, then pin the socket to that answer.
@@ -25,13 +27,15 @@ function isPublicAddress(raw) {
     !(first === 0x2001 && (second <= 0x1ff || second === 0xdb8));
 }
 
-function validateUrl(raw, allowedHosts) {
+function validateUrl(raw, allowedHosts, legacyVodOrigin) {
   if (typeof raw !== 'string' || raw.length > 8192) throw new Error('PROVIDER_DESTINATION_BLOCKED');
   const url = new URL(raw);
   const host = url.hostname.toLowerCase();
   const literal = host.replace(/^\[|\]$/g, '');
-  if (url.protocol !== 'https:' || url.username || url.password || url.hash ||
-      (url.port && url.port !== '443') || host === 'localhost' ||
+  const secure = url.protocol === 'https:' && (!url.port || url.port === '443');
+  // Only the server's configured M3U origin can use its existing VOD exception.
+  const legacyVod = url.origin === legacyVodOrigin && allowedHttpOrigin(url);
+  if ((!secure && !legacyVod) || url.username || url.password || url.hash || host === 'localhost' ||
       /\.(?:local|internal|lan|corp|localhost|home|test|invalid)$/.test(host) ||
       (net.isIP(literal) && !isPublicAddress(literal)) ||
       (allowedHosts && !allowedHosts.includes(host))) throw new Error('PROVIDER_DESTINATION_BLOCKED');
@@ -60,10 +64,11 @@ function deadline(promise, milliseconds) {
 }
 
 async function fetchText(raw, options = {}) {
-  const url = validateUrl(raw, options.allowedHosts);
+  const url = validateUrl(raw, options.allowedHosts, options.legacyVodOrigin);
   const timeout = options.timeout || 20000;
   const lookup = await deadline(resolveDestination(url, options.lookup), Math.min(timeout, 5000));
   const maxBytes = options.maxBytes || 32 * 1024 * 1024;
+  const transport = url.protocol === 'http:' ? http : https;
   return new Promise((resolve, reject) => {
     let done = false;
     let timer;
@@ -74,8 +79,8 @@ async function fetchText(raw, options = {}) {
       if (error) reject(new Error('PROVIDER_FETCH_FAILED'));
       else resolve(value);
     };
-    const request = (options.request || https.request)(url, {
-      method: 'GET', lookup, rejectUnauthorized: true,
+    const request = (options.request || transport.request)(url, {
+      method: 'GET', lookup, agent: false, rejectUnauthorized: true,
       headers: { 'User-Agent': 'TVVIDAA-Xuper/1.0', 'Accept-Encoding': 'identity', ...(options.headers || {}) }
     }, (response) => {
       // Redirects deliberately do not carry credentials to another origin.

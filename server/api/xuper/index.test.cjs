@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { createXuperApi } = require('./index.cjs');
-const { JsonAdapter } = require('../../providers/xuper/adapters.cjs');
+const { JsonAdapter, createRegistry } = require('../../providers/xuper/adapters.cjs');
 const codec = require('../lib/media-token.js');
 
 const SECRET = 'test-media-key-that-is-at-least-32-bytes';
@@ -89,6 +89,59 @@ test('detail exposes normalized seasons and episode progress identities without 
   assert.equal(result.body.seasons[0].episodes[0].number, 4);
   assert.equal(JSON.stringify(result.body).includes(PRIVATE), false);
   assert.equal(JSON.stringify(result.body).includes('streamUrl'), false);
+});
+
+test('the existing M3U resolves approved HTTP VOD but rejects other origins and formats', async (t) => {
+  const previousAck = process.env.VIDAA_HTTP_VOD_ACK;
+  const previousHosts = process.env.VIDAA_HTTP_VOD_HOSTS;
+  t.after(() => {
+    if (previousAck === undefined) delete process.env.VIDAA_HTTP_VOD_ACK;
+    else process.env.VIDAA_HTTP_VOD_ACK = previousAck;
+    if (previousHosts === undefined) delete process.env.VIDAA_HTTP_VOD_HOSTS;
+    else process.env.VIDAA_HTTP_VOD_HOSTS = previousHosts;
+  });
+  process.env.VIDAA_HTTP_VOD_ACK = 'yes';
+  process.env.VIDAA_HTTP_VOD_HOSTS = 'media.example:8080,alternate.example:8080';
+  const origin = 'http://media.example:8080';
+  const env = { M3U_BASE_URL: origin, M3U_USERNAME: 'demo-user', M3U_PASSWORD: PRIVATE, M3U_CACHE_DIR: 'off' };
+  const providers = createRegistry(env, { fetchText: async (raw, settings) => {
+    assert.equal(new URL(raw).origin, origin);
+    assert.equal(settings.legacyVodOrigin, origin);
+    return '#EXTM3U\n#EXTINF:-1 group-title="Peliculas",Cine\n' + origin + '/movie/demo-user/' + PRIVATE + '/1.mp4\n' +
+      '#EXTINF:-1 group-title="Series",Programa S01E01\n' + origin + '/series/demo-user/' + PRIVATE + '/2.mp4\n' +
+      '#EXTINF:-1 group-title="Peliculas",Otro origen\nhttp://alternate.example:8080/3.mp4\n' +
+      '#EXTINF:-1 group-title="Peliculas",Incompatible\n' + origin + '/4.mkv\n';
+  } });
+  const provider = providers.find((entry) => entry.id === 'existing_private_m3u');
+  const data = await provider.load();
+  const { handler, entries } = setup(catalog(), { providers: [provider] });
+  const resolve = (id) => request(handler, 'resolve', { id, providerId: provider.id });
+  const movie = data.movies.find((item) => item.title === 'Cine');
+  const episode = data.series[0].seasons[0].episodes[0];
+  for (const id of [movie.id, episode.id]) {
+    const result = await resolve(id);
+    assert.equal(result.statusCode, 200);
+    assert.match(result.body.mediaUrl, /^\/api\/media\?token=v1\./);
+    assert.equal(JSON.stringify(result.body).includes(PRIVATE), false);
+  }
+  assert.equal((await resolve(data.movies.find((item) => item.title === 'Otro origen').id)).body.errorCode, 'UNSUPPORTED_SOURCE');
+  assert.equal((await resolve(data.movies.find((item) => item.title === 'Incompatible').id)).body.errorCode, 'UNSUPPORTED_FORMAT');
+  assert.equal(entries.size, 2);
+  for (const entry of entries.values()) {
+    assert.deepEqual(entry.hosts, ['media.example']);
+    assert.equal(entry.source, 'vod');
+  }
+  process.env.VIDAA_HTTP_VOD_ACK = 'no';
+  assert.equal((await resolve(movie.id)).body.errorCode, 'UNSUPPORTED_SOURCE');
+});
+
+test('Videoteca lists the authorized movie and series catalog without live or audio', async () => {
+  const { handler } = setup();
+  const result = await request(handler, 'catalog', { section: 'videoteca', page: '2', pageSize: '2' });
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.items.map((item) => [item.id, item.type]), [['series1', 'series']]);
+  assert.equal(result.body.total, 3);
+  assert.equal(result.body.hasMore, false);
 });
 
 test('resolve registers URLs server-side and mints opaque relay tokens including VTT subtitles', async () => {

@@ -1,7 +1,10 @@
 # Xuper Premium para TVVIDAA
 
-Modulo independiente en `/xuper/`, servido por el mismo proceso Node y la misma sesion de TVVIDAA.
-El enlace aparece en la cabecera; Alt+P o el boton amarillo del control remoto lo abre desde TVVIDAA.
+La portada de TVVIDAA usa el módulo en `/xuper/` con la misma sesión del servidor.
+Al ingresar desde el dominio, la aplicación abre Inicio. Inicio, Películas,
+Series, TV y las demás secciones comparten cabecera y navegación.
+La vista clásica sigue disponible en `/tv/`. Desde esa vista, Inicio, Alt+P
+o el botón amarillo del mando vuelven a la portada.
 
 
 La referencia se inspeccionó sin ejecutarla. Véase
@@ -13,7 +16,10 @@ equivalencia completa con Electron ni comparación píxel a píxel de su ejecuci
 ## Funciones y límites
 
 - Catálogos reales de películas, series, canales, radio y música, con búsqueda,
-  categorías, paginación, temporadas y episodios.
+  categorías, temporadas y episodios. Películas y Series muestran destacados,
+  una selección inicial de diez títulos y un Top 10 local cuando el perfil tiene
+  progreso guardado. La cuadrícula agrega páginas al desplazarse y ofrece el
+  botón Cargar más para el mando.
 - Favoritos, historial, reanudación, listas y perfiles guardados por dispositivo.
   Los perfiles son preferencias locales; no son usuarios ni aislamiento de acceso.
   No se guardan contraseñas, tokens ni URLs privadas en el almacenamiento local.
@@ -40,7 +46,9 @@ El nuevo formato `magis-metadata` es un adaptador para un JSON HTTPS **exportado
 - **Radio Browser:** mismo directorio publico del desktop; busca por pais y texto, guarda favoritos por UUID y reproduce la URL que entrega el proveedor.
 - **IPTV-org:** fuente complementaria ya existente de TVVIDAA, claramente identificada.
 - **Internet Archive:** fuente heredada empaquetada, opt-in con XUPER_ENABLE_ARCHIVE=true; no reemplaza LaMovie.
-- **LaMovie:** proveedor activo de Videoteca en el desktop; se muestra como pendiente hasta verificar autorizacion e integracion permitida.
+- **Videoteca:** reúne películas y series de los proveedores autorizados activos.
+  LaMovie queda identificado como fuente del cliente de escritorio pendiente de
+  una integración autorizada.
 - **YouMusic:** abre YouTube Music oficial.
 - **Portal Xuper/Magis:** pendiente de API autorizada y cuenta valida; no se migran sesiones ni claves del instalador.
 
@@ -54,9 +62,17 @@ el catálogo guardado existente, pero no lo sobrescribe. Se conservan los
 catálogos y funciones anteriores de TVVIDAA.
 
 Los nuevos imports y fuentes del módulo requieren HTTPS público con TLS válido.
-Un origen antiguo HTTP puede seguir mostrándose como metadata guardada; no se
-convierte automáticamente en un origen HTTPS operativo. Su reproducción exige
-una fuente HTTPS válida del proveedor.
+El proveedor M3U existente puede actualizar su lista y resolver VOD del mismo
+origen HTTP cuando `VIDAA_HTTP_VOD_ACK=yes` y el host y puerto exactos figuran
+en `VIDAA_HTTP_VOD_HOSTS`. El navegador recibe únicamente referencias opacas
+del relay HTTPS. Si el proveedor rechaza los medios, confirma con ese proveedor
+el permiso de reproducción desde el VPS. Un catálogo accesible o guardado
+puede contener títulos cuya reproducción no esté autorizada.
+
+En la comprobación del 18 de noviembre de 2026, la lista M3U activa
+respondió HTTP 200. El mismo proveedor respondió HTTP 401 a una película
+MP4 y a un episodio MP4 de esa lista recién descargada. El diagnóstico
+distingue la descarga del catálogo del permiso de reproducción.
 
 Se pueden añadir hasta ocho proveedores en `XUPER_PROVIDERS_JSON`, únicamente
 en las variables privadas del servidor. La interfaz muestra sus estados y permite

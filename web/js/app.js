@@ -83,6 +83,10 @@
     catch (_) { showLogin('No se pudo iniciar la conexión.'); }
   }
   function enter() {
+    if (window.location.pathname === '/' || window.location.pathname === '/index.html') {
+      window.location.replace('/xuper/');
+      return;
+    }
     show('splash', false);
     show('auth', false);
     show('shell', true);

@@ -101,15 +101,30 @@ class M3uAdapter {
     this.nextAttemptAt = 0;
     this.lastResolveRefresh = 0;
     this.provider = options.provider || new M3uProvider({ cacheDir: config.cacheDir || false });
+    this.preferSharedCache = options.legacyVod === true && !!this.provider.cacheFile;
+    this.coldLoad = null;
     // Explicit assignment avoids inheriting the default provider's environment
     // when an additional provider has an intentionally absent field.
     Object.assign(this.provider, { playlistUrl: config.url || '', baseUrl: config.baseUrl || '',
       username: config.username || '', password: config.password || '', type: config.type || 'm3u_plus' });
+    if (options.legacyVod && this.configured) {
+      try {
+        const playlist = new URL(config.url || this.provider.buildProviderUrl());
+        if (playlist.protocol === 'http:') this.legacyVodOrigin = playlist.origin;
+      } catch (_) { /* Invalid playlist URLs will be rejected when fetched. */ }
+    }
     if (this.configured) this.provider.fetchM3uContent = async () => {
       if (!this.configured) throw new Error('PROVIDER_NOT_CONFIGURED');
       const url = this.config.url || this.provider.buildProviderUrl();
-      const parsed = validateUrl(url);
-      const text = await this.fetch(url, { allowedHosts: [parsed.hostname], maxBytes: 32 * 1024 * 1024 });
+      const parsed = validateUrl(url, undefined, this.legacyVodOrigin);
+      const settings = { allowedHosts: [parsed.hostname], maxBytes: 32 * 1024 * 1024 };
+      if (parsed.protocol === 'http:') {
+        settings.legacyVodOrigin = this.legacyVodOrigin;
+        // Match the established M3U download budget for the full private list.
+        settings.maxBytes = 64 * 1024 * 1024;
+        settings.timeout = 45000;
+      }
+      const text = await this.fetch(url, settings);
       this.audio = audioEntries(text);
       this.live = liveEntries(text);
       return text;
@@ -119,17 +134,53 @@ class M3uAdapter {
     this.provider.writeDiskCache = async () => {};
   }
 
+  async catalogForLoad(force) {
+    if (force || !this.preferSharedCache || !this.configured || this.provider.inMemoryCatalog) {
+      return { data: await this.provider.refresh(force) };
+    }
+    if (!this.coldLoad) {
+      this.coldLoad = (async () => {
+        const saved = await this.provider.readDiskCache();
+        if (!saved || this.provider.inMemoryCatalog || this.provider.refreshPromise) {
+          return { data: await this.provider.refresh(false) };
+        }
+        // Restore the same credential-free cache handled by M3uProvider.
+        // The current provider settings rebuild URLs only when an ID is selected.
+        saved.stale = !!saved.stale || Date.now() - (saved.fetchedAt || 0) >= this.provider.ttlMs;
+        this.provider.inMemoryCatalog = saved;
+        this.provider.fetchedAt = saved.fetchedAt || 0;
+        this.provider.streamIndex = null;
+        return { data: saved, restored: true };
+      })().finally(() => { this.coldLoad = null; });
+    }
+    return this.coldLoad;
+  }
+
+  renewSharedCatalog(now) {
+    if (now < this.nextAttemptAt || this.provider.refreshPromise) return;
+    this.nextAttemptAt = now + 60000;
+    void this.load(true).catch(() => {});
+  }
+
   async load(force = false) {
-    if (!force && Date.now() < this.nextAttemptAt) {
+    const now = Date.now();
+    if (!force && this.preferSharedCache && this.configured && this.lastResult &&
+        (this.lastResult.stale || now - this.updatedAt >= this.provider.ttlMs)) {
+      this.status = 'stale';
+      this.message = 'Se muestra el último catálogo guardado; puedes actualizar el proveedor.';
+      this.renewSharedCatalog(now);
+      return { ...this.lastResult, stale: true };
+    }
+    if (!force && now < this.nextAttemptAt) {
       if (this.lastResult) return this.lastResult;
       throw new Error('PROVIDER_UNAVAILABLE');
     }
     try {
-      const data = await this.provider.refresh(force);
+      const { data, restored } = await this.catalogForLoad(force);
       this.lastCatalog = data;
       this.status = data.stale ? 'stale' : (this.configured ? 'connected' : 'not_configured');
       this.message = data.stale ? 'Se muestra el último catálogo guardado; verifica la conexión del proveedor.' : '';
-      this.nextAttemptAt = data.stale ? Date.now() + 30000 : 0;
+      this.nextAttemptAt = data.stale ? Math.max(this.nextAttemptAt, restored ? 0 : Date.now() + 30000) : 0;
       this.updatedAt = Number(data.fetchedAt) || 0;
       const audioIds = new Set(this.audio.map((item) => item.streamUrl));
       this.lastResult = {
@@ -139,7 +190,9 @@ class M3uAdapter {
         radio: this.audio.filter((item) => item.type === 'radio'),
         music: this.audio.filter((item) => item.type === 'music'), stale: !!data.stale
       };
-      return this.lastResult;
+      const result = this.lastResult;
+      if (restored && data.stale) this.renewSharedCatalog(Date.now());
+      return result;
     } catch (_) {
       this.nextAttemptAt = Date.now() + 30000;
       this.status = this.configured ? 'unavailable' : 'not_configured';
@@ -283,7 +336,8 @@ function createRegistry(env = process.env, options = {}) {
   try {
     providers.push(new M3uAdapter({ id: 'existing_private_m3u', name: 'Proveedor M3U actual', format: env.M3U_BASE_URL ? 'xtream' : 'm3u',
       url: env.M3U_URL || '', baseUrl: env.M3U_BASE_URL || '', username: env.M3U_USERNAME || '', password: env.M3U_PASSWORD || '',
-      type: env.M3U_TYPE || 'm3u_plus', cacheDir: baseCache, streamHosts: String(env.MEDIA_ALLOWED_HOSTS || '').split(',').map((value) => value.trim()).filter(Boolean) }, options));
+      type: env.M3U_TYPE || 'm3u_plus', cacheDir: baseCache, streamHosts: String(env.MEDIA_ALLOWED_HOSTS || '').split(',').map((value) => value.trim()).filter(Boolean) },
+    { ...options, legacyVod: true }));
   } catch (_) {
     providers.push(disabled('existing_private_m3u', 'Proveedor M3U actual', 'Revisa los hosts multimedia configurados en el servidor.'));
   }
