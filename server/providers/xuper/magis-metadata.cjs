@@ -5,11 +5,6 @@
 // device identifiers, or returns streaming URLs / licenses.
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,160}$/;
 const list = (value) => Array.isArray(value) ? value : [];
-function clean(value, limit = 300) {
-  return (typeof value === 'string' || typeof value === 'number' ? String(value) : '')
-    .replace(/[\x00-\x1f\x7f]/g, ' ').replace(/https?:\/\/[^\s<>]+/gi, '[enlace privado]')
-    .slice(0, limit).trim();
-}
 function safeImage(value) {
   try {
     const url = new URL(value);
@@ -34,8 +29,25 @@ function artwork(asset, kind) {
   }
   return '';
 }
-function normalizeMagisMetadata(raw) {
+function normalizeMagisMetadata(raw, credentials = []) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('INVALID_CATALOG');
+  const variants = new Set();
+  for (const secret of credentials) {
+    if (!secret) continue;
+    variants.add(secret);
+    variants.add(encodeURIComponent(secret));
+  }
+  const secrets = [...variants].sort((a, b) => b.length - a.length);
+  function clean(value, limit = 300) {
+    let text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+    // Redact before limiting lengths so truncation cannot expose a partial secret.
+    for (const secret of secrets) {
+      if (secret.length >= 3) text = text.split(secret).join('[privado]');
+      else if (text.trim() === secret) text = '[privado]';
+    }
+    return text.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/https?:\/\/[^\s<>]+/gi, '[enlace privado]')
+      .slice(0, limit).trim();
+  }
   const movies = new Map(), series = new Map();
   function remember(asset, category = '') {
     if (!asset || typeof asset !== 'object') return;

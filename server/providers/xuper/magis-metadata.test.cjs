@@ -81,3 +81,18 @@ test('catalog integration requires explicit authorized flag and leaves Magis run
   const denied = createRegistry({ ...env, XUPER_PROVIDERS_JSON: env.XUPER_PROVIDERS_JSON.replace('"authorized":true', '"authorized":false') });
   assert.equal(denied.some((provider) => provider.id === 'magis_export'), false);
 });
+
+test('metadata adapter redacts reflected credentials before shortening titles and episode names', async () => {
+  const credential = 'fixture/credential=' + 'x'.repeat(400);
+  const payload = structuredClone(source);
+  payload.home.recommendList[0].assetList[1].name = 'Película ' + credential;
+  payload.details[0].assetData.simpleProgramList[0].name = 'Piloto ' + encodeURIComponent(credential);
+  const adapter = new JsonAdapter({
+    id: 'metadata-test', name: 'Metadatos', format: 'magis-metadata',
+    authorized: true, url: 'https://catalog.example/mock.json', authorization: 'Bearer ' + credential
+  }, { fetchText: async () => JSON.stringify(payload) });
+
+  const catalog = await adapter.load();
+  assert.equal(catalog.movies[0].title, 'Película [privado]');
+  assert.equal(catalog.series[0].seasons[0].episodes[0].title, 'Piloto [privado]');
+});
