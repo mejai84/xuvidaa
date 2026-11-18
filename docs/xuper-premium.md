@@ -155,17 +155,36 @@ no demuestra compatibilidad del televisor ni rendimiento con su decodificador.
 
 ## Revisión, despliegue y rollback
 
-Rama de trabajo: `feat/xuper-premium-web`, basada en la rama actual `hostinger-vps`.
-El punto de entrada continúa siendo `node server/http-server.cjs`. La imagen incluye
-únicamente los nuevos directorios `server/api/xuper`, `server/providers/xuper`
-y `web/xuper` además de los recursos existentes.
+### Estado verificado el 18 de noviembre de 2026
+
+| Trabajo | Estado | Alcance |
+| --- | --- | --- |
+| [PR #15](https://github.com/mejai84/xuvidaa/pull/15) | Publicado en Hostinger, revisión `353262d`, contenedor saludable | Avisos de formato incompatible y de catálogo guardado, con reintentos para fallos temporales. |
+| [PR #17](https://github.com/mejai84/xuvidaa/pull/17) | Integrado en `hostinger-vps` como `a92c15d`. Despliegue pendiente | Análisis REA del port webOS y adaptador `magis-metadata` para exportaciones JSON autorizadas. Las fichas se muestran como «Solo catálogo». |
+| [PR #16](https://github.com/mejai84/xuvidaa/pull/16) | Subido a GitHub y abierto | Selector de temporadas y episodios en el reproductor, avance de episodio, saltos de 10 segundos y velocidad para VOD. |
+
+La revisión del checkout activo y el estado de `xuvidaa-tv-vidaa-1` se comprobaron
+en el VPS. Consultar [el procedimiento de producción](PRODUCTION.md) para
+verificar qué commit está sirviendo el dominio antes de un despliegue.
+
+El [CI del PR #16](https://github.com/mejai84/xuvidaa/actions/runs/44195995831)
+pasó en su propia rama. La revisión de integración identificó tres puntos
+pendientes en el reproductor:
+
+- Permitir que el mando mueva el foco desde el selector de temporadas hacia los
+  botones de episodios.
+- Conservar «Solo catálogo» al normalizar los episodios dentro del reproductor.
+- Desactivar los nuevos controles VOD cuando falle la reproducción.
+
+La validación física en Hisense VIDAA está pendiente.
+
+El punto de entrada es `node server/http-server.cjs`. La imagen incluye
+`server/api/xuper`, `server/providers/xuper` y `web/xuper` junto a los recursos de TVVIDAA.
 
 Primero se debe validar una instancia staging con secretos propios y las mismas
 restricciones de red. Comprobar login, catálogos reales, renovación de tokens,
 manifiestos HLS/segmentos, búsqueda, episodios, foco remoto y vuelta a TVVIDAA.
 No conectar ni mutar otros servicios del VPS.
-
-No se ha desplegado a produccion. El push de esta rama publica codigo para revision; no ejecuta un despliegue.
 
 Para rollback, restaurar la imagen/commit anterior del mismo servicio y reiniciar
 solo ese servicio. No borrar volúmenes ni recrear secretos; el módulo no migra
