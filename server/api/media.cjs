@@ -9,6 +9,7 @@ const dns = require('node:dns');
 const net = require('node:net');
 const tokenCodec = require('./lib/media-token.js');
 const registry = require('./media-registry.cjs');
+const compatibility = require('./lib/media-compat.cjs');
 const MANIFEST_LIMIT = 2 * 1024 * 1024;
 const RANGE = /^bytes=(?:\d+-\d*|-\d+)$/;
 
@@ -85,6 +86,7 @@ function createHandler(deps) {
     if (!entry) return error(res, 410, 'Referencia multimedia no disponible');
     const url = validateUrl(entry.url, entry.hosts, entry.source);
     if (!url) return error(res, 403, 'Origen multimedia no permitido');
+    const convert = compatibility.available() && compatibility.isMatroska(entry);
     if (req.headers.range && !RANGE.test(String(req.headers.range))) {
       return error(res, 416, 'Rango inválido');
     }
@@ -95,6 +97,11 @@ function createHandler(deps) {
       publicBase = conf.origin;
     } catch (_) { return error(res, 503, 'Dominio público no configurado'); }
 
+    if (req.query.diagnostic === '1') {
+      if (req.method !== 'GET') return error(res, 405, 'Método no permitido');
+      return res.status(200).json({ providerDenied: registry.isProviderDenied(entry) });
+    }
+
     function reference(source) {
       const child = validateUrl(new URL(source, url).toString(), entry.hosts, entry.source);
       if (!child) throw new Error('Host de segmento no permitido');
@@ -102,7 +109,7 @@ function createHandler(deps) {
       const next = registry.register({
         url:child.toString(),hosts:entry.hosts,source:entry.source,
         mime:mimetype,headers:entry.headers||{},duration:entry.duration||0
-      },entry.exp);
+      },entry.exp,entry);
       if (!next) throw new Error('No se pudo registrar segmento');
       return publicBase + '/api/media?token=' + encodeURIComponent(next.token);
     }
@@ -126,8 +133,8 @@ function createHandler(deps) {
     delete headers.Host;
     delete headers.host;
     delete headers.Connection;
-    if (req.headers.range) headers.Range=String(req.headers.range);
-    if (req.headers['if-range']) headers['If-Range']=String(req.headers['if-range']).slice(0,150);
+    if (!convert && req.headers.range) headers.Range=String(req.headers.range);
+    if (!convert && req.headers['if-range']) headers['If-Range']=String(req.headers['if-range']).slice(0,150);
     headers.Connection='close';
     // Request uncompressed HLS text: the relay rewrites manifests, but does not
     // implement Content-Encoding decompression for upstream responses.
@@ -162,6 +169,7 @@ function createHandler(deps) {
         // A 2xx response alone is not proof that a segment is decodable.
         if (status < 200 || status >= 300) {
           if (status !== 416) {
+            if (status === 401 || status === 403) registry.markProviderDenied(entry);
             failLog('upstream_http_error',status);
             remote.resume();
             return error(res,502,'El proveedor no entregó un segmento multimedia válido');
@@ -172,6 +180,14 @@ function createHandler(deps) {
           'Content-Type':String(remote.headers['content-type']||'application/octet-stream'),
           'X-Content-Type-Options':'nosniff'
         };
+        if (convert && status >= 200 && status < 300) {
+          if (req.method === 'HEAD') {
+            remote.resume();
+            res.writeHead(200, { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, no-store', 'Accept-Ranges': 'none' });
+            return res.end();
+          }
+          return compatibility.convert(remote, res);
+        }
         if (remote.headers['content-length']) out['Content-Length']=remote.headers['content-length'];
         if (remote.headers['content-range']) out['Content-Range']=remote.headers['content-range'];
         if (remote.headers['accept-ranges']) out['Accept-Ranges']=remote.headers['accept-ranges'];

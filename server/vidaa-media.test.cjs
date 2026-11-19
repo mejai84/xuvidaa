@@ -30,7 +30,7 @@ function mockResponse(status,headers,data) {
 function mediaRequest(t,opts) {
   const o=opts||{};
   return new Promise((resolve,reject)=>{
-    let captured,called=false;
+    let captured,called=false,dnsCalls=0;
     const res=new Writable({write(chunk,_encoding,cb){pieces.push(Buffer.from(chunk));cb();}});
     const pieces=[],headers={};res.headersSent=false;
     res.setHeader=function(k,v){headers[k.toLowerCase()]=v;return res;};
@@ -40,10 +40,13 @@ function mediaRequest(t,opts) {
     res.writeHead=function(c,out){res.statusCode=c;res.headersSent=true;Object.keys(out||{}).forEach(k=>headers[k.toLowerCase()]=out[k]);return res;};
     res.on('finish',()=>{
       if(called)return;called=true;
-      resolve({status:res.statusCode||200,headers,body:Buffer.concat(pieces).toString('utf8'),upstream:captured});
+      resolve({status:res.statusCode||200,headers,body:Buffer.concat(pieces).toString('utf8'),upstream:captured,dnsCalls});
     });
     const server=relay.createHandler({
-      dnsLookup:(host,_options,cb)=>cb(null,o.addresses||[{address:'1.1.1.1',family:4}]),
+      dnsLookup:(host,_options,cb)=>{
+        dnsCalls++;
+        cb(null,o.addresses||[{address:'1.1.1.1',family:4}]);
+      },
       httpsRequest:(params,handler)=>{
         captured=params;
         const upstream=new EventEmitter();
@@ -150,6 +153,70 @@ test('rejects HLS cross-host child and redirect safely',async()=>{
   assert.equal(m.status,502);
   const d=await mediaRequest(t,{status:302,headers:{location:'https://evil.example/video.mp4'}});
   assert.equal(d.status,502);
+});
+
+async function assertDiagnostic(ref,providerDenied) {
+  const result=await mediaRequest(ref,{query:{diagnostic:'1'}});
+  assert.equal(result.status,200);
+  assert.equal(result.headers['cache-control'],'private, no-store');
+  assert.deepEqual(JSON.parse(result.body),{providerDenied});
+  assert.equal(result.dnsCalls,0);
+  assert.equal(result.upstream,undefined);
+}
+
+test('media diagnostic records genuine upstream authorization denial without changing the 502 response',async()=>{
+  const ref=token('https://cdn.example/movie/demo/video.mp4');
+  await assertDiagnostic(ref,false);
+  const upstreamFailure=await mediaRequest(ref,{status:503});
+  assert.equal(upstreamFailure.status,502);
+  const localDenial=await mediaRequest(ref,{addresses:[{address:'10.1.0.5',family:4}]});
+  assert.equal(localDenial.status,403);
+  await assertDiagnostic(ref,false);
+
+  const upstreamDenial=await mediaRequest(ref,{status:401,headers:{'www-authenticate':'private details'},body:'private response'});
+  assert.equal(upstreamDenial.status,502);
+  assert.deepEqual(JSON.parse(upstreamDenial.body),{error:'El proveedor no entregó un segmento multimedia válido'});
+  assert.equal(upstreamDenial.headers['www-authenticate'],undefined);
+  await assertDiagnostic(ref,true);
+  assert.equal((await mediaRequest(ref)).status,200);
+  await assertDiagnostic(ref,true);
+  await assertDiagnostic(token('https://cdn.example/movie/demo/video.mp4'),false);
+});
+
+test('HLS provider denial propagates through variants to the root and its siblings only',async()=>{
+  const url='https://cdn.example/master.m3u8';
+  const top=token(url,'application/vnd.apple.mpegurl');
+  const separate=token(url,'application/vnd.apple.mpegurl');
+  const manifestHeaders={'content-type':'application/vnd.apple.mpegurl'};
+  const master=await mediaRequest(top,{headers:manifestHeaders,
+    body:'#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100000\nlow.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=200000\nhigh.m3u8\n'});
+  const refsFrom=(manifest)=>manifest.body.split('\n').filter((line)=>line.startsWith('https://'))
+    .map((line)=>new URL(line).searchParams.get('token'));
+  assert.equal(master.status,200);
+  const [variant,sibling]=refsFrom(master);
+  const nested=await mediaRequest(variant,{headers:manifestHeaders,body:'#EXTM3U\n#EXTINF:5,\nfirst.ts\n'});
+  assert.equal(nested.status,200);
+  const [segment]=refsFrom(nested);
+  assert.equal((await mediaRequest(segment,{status:403})).status,502);
+  for (const ref of [top,variant,sibling,segment]) await assertDiagnostic(ref,true);
+  await assertDiagnostic(separate,false);
+});
+
+test('media diagnostic retains origin, token expiry and method checks',async()=>{
+  const ref=token('https://cdn.example/video.mp4');
+  const expired=codec.encode({ref:'d'.repeat(40),exp:Date.now()-1000},process.env.MEDIA_TOKEN_SECRET);
+  const query={diagnostic:'1'};
+  for (const [value,options,status] of [
+    ['bogus',{query},403],
+    [expired,{query},410],
+    [ref,{query,requestHeaders:{origin:'https://evil.example'}},403],
+    [ref,{query,method:'HEAD'},405]
+  ]) {
+    const result=await mediaRequest(value,options);
+    assert.equal(result.status,status);
+    assert.equal(result.dnsCalls,0);
+    assert.equal(result.upstream,undefined);
+  }
 });
 
 test('HTTP VOD is disabled by default, even for a public host',async()=>{

@@ -1,5 +1,10 @@
 FROM node:22-bookworm-slim
+ARG BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision=$BUILD_REVISION
 ENV NODE_ENV=production BIND_HOST=0.0.0.0 PORT=3000
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --chown=node:node server/http-server.cjs ./server/http-server.cjs
 COPY --chown=node:node server/api/ ./server/api/

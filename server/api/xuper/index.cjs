@@ -2,6 +2,7 @@
 
 const { createRegistry, ID, SECTIONS } = require('../../providers/xuper/adapters.cjs');
 const { validateUrl } = require('../../providers/xuper/safe-http.cjs');
+const compatibility = require('../lib/media-compat.cjs');
 const defaultMediaRegistry = require('../media-registry.cjs');
 
 const ACTIONS = new Set(['bootstrap', 'catalog', 'detail', 'resolve', 'providers', 'refresh', 'guide']);
@@ -69,7 +70,10 @@ function createXuperApi(options = {}) {
 
     const mime = String(stream.mime || '').split(';')[0].trim().toLowerCase();
     let format;
-    if (/\.mkv$/i.test(pathname) || /^(?:video|application)\/(?:x-)?matroska$/.test(mime)) format = 'MKV';
+    if (/\.mkv$/i.test(pathname) || /^(?:video|application)\/(?:x-)?matroska$/.test(mime)) {
+      if (type !== 'live' && compatibility.available(env)) return undefined;
+      format = 'MKV';
+    }
     else if (/\.avi$/i.test(pathname) || /^video\/(?:x-msvideo|avi)$/.test(mime)) format = 'AVI';
     else if ((type === 'live' || type === 'radio') && !/\.m3u8$/i.test(pathname) && !/mpegurl/i.test(mime) &&
       (/\.ts$/i.test(pathname) || mime === 'video/mp2t')) format = 'TS';
@@ -209,7 +213,7 @@ function createXuperApi(options = {}) {
       if (action === 'bootstrap') return ok(res, { providers: providers.map(providerDto), capabilities: {
         sections: ['home', ...SECTIONS, 'kids', 'anime', 'videoteca'], profiles: 'device', favorites: 'device', history: 'device', playlists: 'device',
         providerAdministration: 'server_environment', epg: 'provider_json', downloads: false,
-        transcode: false, youtubeMusic: { enabled: false, officialUrl: 'https://music.youtube.com/' },
+        transcode: compatibility.available(env), youtubeMusic: { enabled: false, officialUrl: 'https://music.youtube.com/' },
         formats: ['hls', 'mp4', 'ts-vod', 'mp3', 'aac', 'ogg', 'webm'],
         notice: 'Los catálogos y la reproducción dependen de proveedores autorizados configurados.'
       } });

@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const codec = require('./lib/media-token.js');
 const {permittedMediaOrigin,permittedLiveOrigin} = require('./lib/vod-origin-policy.cjs');
 const pool = new Map();
+const playbackStates = new WeakMap();
 const MAX_ENTRIES = 25000;
 const DEFAULT_TTL = 8 * 60 * 60 * 1000;
 const secret = () => process.env.MEDIA_TOKEN_SECRET || '';
@@ -14,7 +15,7 @@ function clean() {
   for (const [id, entry] of pool) if (entry.exp < now) pool.delete(id);
   while (pool.size >= MAX_ENTRIES) pool.delete(pool.keys().next().value);
 }
-function register(entry, until) {
+function register(entry, until, parent) {
   const exp = Math.min(Number(until) || (Date.now() + DEFAULT_TTL), Date.now() + DEFAULT_TTL);
   if (!entry || typeof entry.url !== 'string' || !secret() || exp <= Date.now()) return null;
   const url = new URL(entry.url);
@@ -23,9 +24,13 @@ function register(entry, until) {
   if (!hosts.includes(url.hostname.toLowerCase())) return null;
   clean();
   const id = crypto.randomBytes(20).toString('hex');
-  pool.set(id, {url:url.toString(),hosts:hosts,source:entry.source === 'live' ? 'live' : 'vod',
+  const issued = {url:url.toString(),hosts:hosts,source:entry.source === 'live' ? 'live' : 'vod',
     mime:entry.mime || 'application/octet-stream',
-    headers:entry.headers || {},duration:entry.duration||0,exp});
+    headers:entry.headers || {},duration:entry.duration||0,exp};
+  // Children inherit the Boolean from an existing resolution. Unrelated refs
+  // begin with fresh state even if they point to the same upstream URL.
+  playbackStates.set(issued, playbackStates.get(parent) || { providerDenied: false });
+  pool.set(id, issued);
   const token = codec.encode({ref:id, exp}, secret());
   if (!token) {pool.delete(id);return null;}
   return {token,exp};
@@ -38,5 +43,12 @@ function lookup(token) {
   if (!entry || entry.exp < Date.now() || entry.exp !== signed.exp) return null;
   return entry;
 }
+function markProviderDenied(entry) {
+  const state = playbackStates.get(entry);
+  if (state) state.providerDenied = true;
+}
+function isProviderDenied(entry) {
+  return playbackStates.get(entry)?.providerDenied === true;
+}
 function clearForTest() {pool.clear();}
-module.exports={register,lookup,clearForTest};
+module.exports={register,lookup,markProviderDenied,isProviderDenied,clearForTest};

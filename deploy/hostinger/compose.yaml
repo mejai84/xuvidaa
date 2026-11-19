@@ -45,6 +45,9 @@ services:
       VIDAA_HTTP_VOD_HOSTS: ${VIDAA_HTTP_VOD_HOSTS:-}
       XUPER_PROVIDERS_JSON: ${XUPER_PROVIDERS_JSON:-}
       XUPER_ENABLE_ARCHIVE: ${XUPER_ENABLE_ARCHIVE:-false}
+      XUPER_ENABLE_LAMOVIE: ${XUPER_ENABLE_LAMOVIE:-false}
+      MEDIA_COMPAT_ENABLED: ${MEDIA_COMPAT_ENABLED:-false}
+      FFMPEG_PATH: /usr/bin/ffmpeg
     volumes:
       - xuvidaa-catalog-cache:/app/server/.cache
     restart: unless-stopped

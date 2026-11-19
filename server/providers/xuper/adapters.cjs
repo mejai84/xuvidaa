@@ -7,6 +7,8 @@ const { fetchText, validateUrl } = require('./safe-http.cjs');
 const { RadioBrowserAdapter, IptvOrgAdapter } = require('./public-providers.cjs');
 const { InternetArchiveAdapter } = require('./internet-archive.cjs');
 const { normalizeMagisMetadata } = require('./magis-metadata.cjs');
+const { XuperHttpAdapter } = require('./xuper-http.cjs');
+const { LaMovieAdapter } = require('./lamovie.cjs');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,160}$/;
 const SECTIONS = ['movies', 'series', 'live', 'radio', 'music'];
@@ -351,12 +353,17 @@ function createRegistry(env = process.env, options = {}) {
       for (const config of configs) {
         if (!config || typeof config !== 'object' || !/^[a-z][a-z0-9_-]{0,47}$/.test(config.id || '') || ids.has(config.id) ||
             typeof config.name !== 'string' || !config.name.trim() || config.name.length > 100 ||
-            !['m3u', 'xtream', 'json', 'magis-metadata'].includes(config.format) || config.authorized !== true) throw new Error('INVALID_PROVIDERS');
+            !['m3u', 'xtream', 'json', 'magis-metadata', 'xuper-http'].includes(config.format) || config.authorized !== true) throw new Error('INVALID_PROVIDERS');
         if (credentialsFor(config).some((value) => value.length >= 3 ? config.id.includes(value) || config.id.includes(encodeURIComponent(value)) : config.id === value)) throw new Error('INVALID_PROVIDERS');
         ids.add(config.id);
         for (const field of ['url', 'baseUrl', 'username', 'password', 'authorization']) if (config[field] !== undefined && (typeof config[field] !== 'string' || config[field].length > 8192 || /[\r\n]/.test(config[field]))) throw new Error('INVALID_PROVIDERS');
         if (config.url) validateUrl(config.url);
         if (config.baseUrl) validateUrl(config.baseUrl);
+        if (config.format === 'xuper-http') {
+          added.push(new XuperHttpAdapter(config, hostList(config.streamHosts), credentialsFor(config),
+            { ...options, cacheDir: baseCache, locatorKey: env.MEDIA_TOKEN_SECRET }));
+          continue;
+        }
         added.push(['json', 'magis-metadata'].includes(config.format)
           ? new JsonAdapter(config, options) : new M3uAdapter({ ...config, cacheDir: false }, options));
       }
@@ -378,7 +385,12 @@ function createRegistry(env = process.env, options = {}) {
   try { providers.push(new IptvOrgAdapter(env, options)); }
   catch (_) { providers.push(disabled('iptv_org', 'IPTV-org · TVVIDAA', 'Revisa el país y el idioma del proveedor existente de TVVIDAA.')); }
   providers.push(disabled('xuper_premium', 'Magis / Xuper · Portal original', 'Pendiente de API y autenticación autorizadas. No se importan claves, sesiones ni identidades del portable.'));
-  providers.push(disabled('lamovie', 'LaMovie · Videoteca original', 'Proveedor identificado en el desktop. Su autorización y mecanismo de integración permitido están pendientes de verificar.'));
+  if (env.XUPER_ENABLE_LAMOVIE === 'true') {
+    providers.push(new LaMovieAdapter({ id: 'lamovie', baseUrl: 'https://lamoviebot.tvymas.workers.dev' },
+      { ...options, cacheDir: baseCache, mediaTokenSecret: env.MEDIA_TOKEN_SECRET }));
+  } else {
+    providers.push(disabled('lamovie', 'LaMovie · Videoteca original', 'Habilita la integración de Videoteca en el servidor.'));
+  }
   providers.push({ ...disabled('youtube_music', 'YouTube Music · YouMusic', 'Abre YouTube Music e inicia sesión en su sitio oficial.'),
     status: 'official_link', officialUrl: 'https://music.youtube.com/' });
   for (const provider of providers) {
